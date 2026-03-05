@@ -10,8 +10,7 @@
 
 
 
-namespace dm_arm
-{
+namespace dm_arm {
     // ! ========================= 接 口 量 声 明 ========================= ! //
 
 
@@ -28,8 +27,7 @@ namespace dm_arm
      * @param plan_group_name 机械臂规划组名称
      */
     EefPoseCmd::EefPoseCmd(const ros::NodeHandle& nh, const std::string& plan_group_name)
-        : _nh_(nh), _arm_(plan_group_name), _tf_listener_(_tf_buffer_)
-    {
+        : _nh_(nh), _arm_(plan_group_name), _tf_listener_(_tf_buffer_) {
         // 获取规划参考坐标系
         _plan_frame_ = _arm_.getPlanningFrame();
         ROS_INFO_STREAM("规划坐标系为：" << _plan_frame_);
@@ -93,8 +91,7 @@ namespace dm_arm
      * @param[in] target_pose_eef 目标位姿（eef坐标系）
      * @param[out] target_pose_base 目标位姿（base坐标系）
      */
-    void EefPoseCmd::eefTfBase(geometry_msgs::PoseStamped& target_pose_eef, geometry_msgs::PoseStamped& target_pose_base)
-    {
+    void EefPoseCmd::eefTfBase(geometry_msgs::PoseStamped& target_pose_eef, geometry_msgs::PoseStamped& target_pose_base) {
         // 获取末端执行器相对于基座的变换矩阵
         geometry_msgs::TransformStamped tf_stamped = _tf_buffer_.lookupTransform(_plan_frame_, _eef_frame_, ros::Time(0), ros::Duration(1.0));
         // 进行坐标系转换
@@ -106,8 +103,7 @@ namespace dm_arm
      * @param target_pose 目标位姿
      * @return 是否可达
      */
-    bool EefPoseCmd::isIkValid(const geometry_msgs::Pose& target_pose)
-    {
+    bool EefPoseCmd::isIkValid(const geometry_msgs::Pose& target_pose) {
         return _current_state_->setFromIK(_jmg_, target_pose, 0.0);
     }
 
@@ -119,8 +115,7 @@ namespace dm_arm
      * @return 是否找到可达位姿，找到则返回true，geometry_msgs::Pose类型的target_pose将被更新为可达位姿
      * @note 当RPY均为0时，进行前馈计算
      */
-    bool EefPoseCmd::searchReachablePose(geometry_msgs::Pose& target_pose, double step, double radius)
-    {
+    bool EefPoseCmd::searchReachablePose(geometry_msgs::Pose& target_pose, double step, double radius) {
         // 先判断一次目标位姿是否可达
         if(isIkValid(target_pose)) return true;
 
@@ -145,14 +140,14 @@ namespace dm_arm
         // 获取目标位姿的欧拉角表示，并根据判断进行前馈计算
         tf2::Quaternion q_orig;
         double roll_orig, pitch_orig, yaw_orig;
-        if(need_feedforward){
+        if(need_feedforward) {
             // 获取底座到末端连线向外方向单位向量，作为末端Z轴在基坐标系下的表示
             tf2::Vector3 z_axis(
                 target_pose.position.x,
                 target_pose.position.y,
                 target_pose.position.z
             );
-            if(z_axis.length() < 1e-8){
+            if(z_axis.length() < 1e-8) {
                 ROS_ERROR("目标位姿位置无效，无法进行前馈计算。");
                 return false;
             }
@@ -182,10 +177,10 @@ namespace dm_arm
 
         // A*搜索初始化
         const int step_count = static_cast<int>(std::ceil(radius / step));
-        auto heuristic = [](double droll, double dpitch){ return std::hypot(droll, dpitch); };
+        auto heuristic = [](double droll, double dpitch) { return std::hypot(droll, dpitch); };
 
         std::priority_queue<AStarNode_t, std::vector<AStarNode_t>, AstarNodeCmper> open_set;
-        AStarNode_t start_node = {0.0, 0.0, 0.0, heuristic(0.0, 0.0), 0.0};
+        AStarNode_t start_node = { 0.0, 0.0, 0.0, heuristic(0.0, 0.0), 0.0 };
         start_node.f = start_node.g + start_node.h;
         open_set.push(start_node);
 
@@ -202,14 +197,14 @@ namespace dm_arm
 
         // 使用配置的最大迭代次数作为扩展限制，如果配置为0则使用自动计算的限制
         size_t max_expand = _max_iterations_;
-        if(max_expand == 0){
+        if(max_expand == 0) {
             max_expand = static_cast<size_t>((2 * step_count + 1) * (2 * step_count + 1) * 10);
         }
         size_t expand_count = 0;
 
         // A*搜索过程
-        while(!open_set.empty()){
-            if(++expand_count > max_expand){
+        while(!open_set.empty()) {
+            if(++expand_count > max_expand) {
                 ROS_ERROR("A*搜索超出最大扩展节点数 (%zu)，终止搜索。", max_expand);
                 break;
             }
@@ -229,9 +224,11 @@ namespace dm_arm
 
             // 转换回底座坐标系下再进行IK检测
             tf2::doTransform(pose_candidate, pose_candidate, tf_stamped_inv);
-            if(isIkValid(pose_candidate)){
+            if(isIkValid(pose_candidate)) {
                 // 碰撞检测
-                if(_planning_scene_->isStateColliding(*_current_state_, _jmg_->getName())){
+                moveit::core::RobotState temp_state(*_current_state_);
+                temp_state.setFromIK(_jmg_, pose_candidate, 0.0);
+                if(_planning_scene_->isStateColliding(temp_state, _jmg_->getName())) {
                     ROS_WARN("搜索到的位姿存在碰撞，继续搜索...");
                     continue;
                 }
@@ -247,7 +244,7 @@ namespace dm_arm
             int cur_roll_idx = static_cast<int>(std::round(current_node.droll / step));
             int cur_pitch_idx = static_cast<int>(std::round(current_node.dpitch / step));
 
-            for(auto& dir : dirs){
+            for(auto& dir : dirs) {
                 int new_roll_idx = cur_roll_idx + dir[0];
                 int new_pitch_idx = cur_pitch_idx + dir[1];
 
@@ -255,7 +252,7 @@ namespace dm_arm
                 double new_droll = new_roll_idx * step;
                 double new_dpitch = new_pitch_idx * step;
                 if(std::hypot(new_droll, new_dpitch) > radius + 1e-12) continue;
-                Key new_visited {new_roll_idx, new_pitch_idx};
+                Key new_visited{ new_roll_idx, new_pitch_idx };
 
                 // 计算代价：目标为原点，启发式估计使用欧几里得距离
                 double move_cost = std::hypot(new_droll - current_node.droll, new_dpitch - current_node.dpitch);
@@ -267,7 +264,7 @@ namespace dm_arm
                 auto it = closed_set.find(new_visited);
                 if(it != closed_set.end() && it->second <= new_g) continue;
                 closed_set[new_visited] = new_g;
-                open_set.push({new_droll, new_dpitch, new_g, new_h, new_f});
+                open_set.push({ new_droll, new_dpitch, new_g, new_h, new_f });
             }
         }
 
@@ -284,8 +281,7 @@ namespace dm_arm
      * @return 是否到达成功
      * @note 前馈计算只在允许微调时可以启用
      */
-    bool EefPoseCmd::setGoalPoseBase(geometry_msgs::PoseStamped& target_pose, bool allow_tweak, bool allow_feedforward)
-    {
+    bool EefPoseCmd::setGoalPoseBase(geometry_msgs::PoseStamped& target_pose, bool allow_tweak, bool allow_feedforward) {
         target_pose.header.frame_id = _plan_frame_;
         target_pose.header.stamp = ros::Time::now();
 
@@ -294,9 +290,9 @@ namespace dm_arm
         _current_state_ = _arm_.getCurrentState();
 
         // 检查是否允许微调
-        if(allow_tweak){
+        if(allow_tweak) {
             // 检查是否启用前馈计算
-            if(allow_feedforward){
+            if(allow_feedforward) {
                 target_pose.pose.orientation.w = 1.0;
                 target_pose.pose.orientation.x = 0.0;
                 target_pose.pose.orientation.y = 0.0;
@@ -314,9 +310,9 @@ namespace dm_arm
 
             target_pose.pose = pose_candidate;
         }
-        else{
+        else {
             ROS_INFO("移动到目标位姿中...");
-            if(!isIkValid(target_pose.pose)){
+            if(!isIkValid(target_pose.pose)) {
                 ROS_ERROR("目标位姿不可达，移动失败。");
                 return false;
             }
@@ -327,13 +323,13 @@ namespace dm_arm
         _arm_.setPoseTarget(target_pose);
 
         bool success = (_arm_.plan(plan) == moveit::planning_interface::MoveItErrorCode::SUCCESS);
-        if(!success){
+        if(!success) {
             ROS_ERROR("规划到目标位姿失败，移动失败。");
             return false;
         }
 
         success = (_arm_.execute(plan) == moveit::planning_interface::MoveItErrorCode::SUCCESS);
-        if(!success){
+        if(!success) {
             ROS_ERROR("执行到目标位姿失败，移动失败。");
             return false;
         }
@@ -352,8 +348,7 @@ namespace dm_arm
      * @note 用于前伸与后缩时，设d为伸缩距离，则目标位姿(x,y,z,roll,pitch,yaw) = (0,0,d,0,0,0)
      * @note 位置变换随简单的加分，但姿态变换是四元数插值，不可直接修改yaw值来实现旋转
      */
-    bool EefPoseCmd::setGoalPoseEef(geometry_msgs::PoseStamped& target_pose, bool allow_tweak, bool allow_feedforward)
-    {
+    bool EefPoseCmd::setGoalPoseEef(geometry_msgs::PoseStamped& target_pose, bool allow_tweak, bool allow_feedforward) {
         // 把目标位姿从eef坐标系转换到base坐标系
         geometry_msgs::PoseStamped target_pose_base;
         eefTfBase(target_pose, target_pose_base);
@@ -367,8 +362,7 @@ namespace dm_arm
      * @param distance 伸缩距离，正值为前伸，负值为后缩
      * @return 是否到达成功
      */
-    bool EefPoseCmd::eefStretch(double distance)
-    {
+    bool EefPoseCmd::eefStretch(double distance) {
         geometry_msgs::PoseStamped target_pose_eef;
         target_pose_eef.pose.position.x = 0.0;
         target_pose_eef.pose.position.y = 0.0;
@@ -386,8 +380,7 @@ namespace dm_arm
      * @param angle 旋转角度，单位为度，正值为逆时针旋转，负值为顺时针旋转
      * @return 是否到达成功
      */
-    bool EefPoseCmd::eefRotate(double angle)
-    {
+    bool EefPoseCmd::eefRotate(double angle) {
         angle = angle * M_PI / 180.0; // 转换为弧度
 
         geometry_msgs::Pose current = getCurrentEefPose();
@@ -411,8 +404,7 @@ namespace dm_arm
     /**
      * @brief 重置机械臂到初始位置
      */
-    void EefPoseCmd::resetToZero(void)
-    {
+    void EefPoseCmd::resetToZero(void) {
         ROS_INFO("重置机械臂到初始位置...");
         _arm_.setNamedTarget("zero");
         _arm_.move();
@@ -422,8 +414,7 @@ namespace dm_arm
      * @brief 获取当前机械臂末端执行器位姿
      * @return 末端执行器位姿
      */
-    geometry_msgs::Pose EefPoseCmd::getCurrentEefPose(void)
-    {
+    geometry_msgs::Pose EefPoseCmd::getCurrentEefPose(void) {
         return _arm_.getCurrentPose().pose;
     }
 
@@ -431,8 +422,7 @@ namespace dm_arm
      * @brief 获取当前机械臂关节位置
      * @return 关节位置向量
      */
-    std::vector<double> EefPoseCmd::getCurrentJointPose(void)
-    {
+    std::vector<double> EefPoseCmd::getCurrentJointPose(void) {
         return _arm_.getCurrentJointValues();
     }
 
@@ -441,8 +431,7 @@ namespace dm_arm
      * @param eef_cmd 机械臂末端执行器位姿控制类引用
      */
     TaskGroupPlanner::TaskGroupPlanner(EefPoseCmd& eef_cmd)
-        : _eef_cmd_(eef_cmd)
-    {
+        : _eef_cmd_(eef_cmd) {
         ros::NodeHandle nh;
         nh.param<bool>("task_planner/enable_optimization", _enable_optimization_, true);
         nh.param<std::string>("task_planner/optimization_method", _optimization_method_, "greedy");
@@ -458,16 +447,14 @@ namespace dm_arm
      * @brief 添加任务目标到任务列表
      * @param target 任务目标
      */
-    void TaskGroupPlanner::add(const TaskTarget_t& target)
-    {
+    void TaskGroupPlanner::add(const TaskTarget_t& target) {
         _task_list_.push_back(target);
     }
 
     /**
      * @brief 清空任务列表
      */
-    void TaskGroupPlanner::clear()
-    {
+    void TaskGroupPlanner::clear() {
         _task_list_.clear();
     }
 
@@ -475,9 +462,8 @@ namespace dm_arm
      * @brief 执行路径优化后的所有任务
      * @note 采用贪婪最近邻算法对点位进行排序，实现最短的移动路径
      */
-    void TaskGroupPlanner::executeAll()
-    {
-        if(_task_list_.empty()){
+    void TaskGroupPlanner::executeAll() {
+        if(_task_list_.empty()) {
             ROS_ERROR("任务列表为空，无法执行任务。");
             return;
         }
@@ -490,7 +476,7 @@ namespace dm_arm
         geometry_msgs::Pose current_pose = _eef_cmd_.getCurrentEefPose();
 
         // 距离计算Lambda函数
-        auto calc_dist = [](const geometry_msgs::Pose& pose1, const geometry_msgs::Pose& pose2){
+        auto calc_dist = [](const geometry_msgs::Pose& pose1, const geometry_msgs::Pose& pose2) {
             const double dx = pose1.position.x - pose2.position.x;
             const double dy = pose1.position.y - pose2.position.y;
             const double dz = pose1.position.z - pose2.position.z;
@@ -498,12 +484,12 @@ namespace dm_arm
             };
 
         // 执行排序
-        while(!pending_tasks.empty()){
+        while(!pending_tasks.empty()) {
             // 找到距离当前排序位姿最近的任务
             auto nearest_it = std::min_element(
                 pending_tasks.begin(),
                 pending_tasks.end(),
-                [&](const auto& a, const auto& b){
+                [&](const auto& a, const auto& b) {
                     return calc_dist(current_pose, a.pose) < calc_dist(current_pose, b.pose);
                 }
             );
@@ -515,7 +501,7 @@ namespace dm_arm
 
         // 依次执行排序后的任务
         std::size_t task_index = 1;
-        for(const auto& task : sorted_tasks){
+        for(const auto& task : sorted_tasks) {
             ROS_INFO("任务 [%zu/%zu] 开始执行。", task_index, sorted_tasks.size());
             bool success = false;
 
@@ -526,24 +512,24 @@ namespace dm_arm
             if(!success) ROS_WARN("任务 [%zu] 失败。", task_index);
 
             // 执行任务动作
-            if(task.action == TargetAction_e::PICK && success){
+            if(task.action == TargetAction_e::PICK && success) {
 
                 // TODO: 执行采摘动作
             }
-            else if(task.action == TargetAction_e::STRETCH && success){
+            else if(task.action == TargetAction_e::STRETCH && success) {
 
                 // TODO: 根据视觉反馈调整伸缩参数
-                if(task.param1 == 0.0){
+                if(task.param1 == 0.0) {
 
                 }
 
                 success = _eef_cmd_.eefStretch(task.param1);
                 if(!success) ROS_WARN("任务 [%zu] 伸缩动作失败。", task_index);
             }
-            else if(task.action == TargetAction_e::ROTATE && success){
+            else if(task.action == TargetAction_e::ROTATE && success) {
 
                 // TODO: 根据视觉反馈调整旋转参数
-                if(task.param1 == 0.0){
+                if(task.param1 == 0.0) {
 
                 }
 
