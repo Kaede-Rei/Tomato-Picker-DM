@@ -483,12 +483,6 @@ moveit:
 ```
 Tomato-Picker-DM/
 ├── src/
-│   ├── dm_arm_controller/                  # 机械臂控制节点
-│   │   ├── include/                        # 头文件
-│   │   ├── src/
-│   │   │   └── eef_cmd.cpp                 # 末端执行器命令处理
-│   │   ├── CMakeLists.txt
-│   │   └── package.xml
 │   │
 │   ├── dm_arm_description/                 # 机械臂 URDF 模型
 │   │   ├── meshes/                         # 3D 模型文件
@@ -514,12 +508,6 @@ Tomato-Picker-DM/
 │   │   │   ├── demo_gazebo.launch          # Gazebo 仿真启动
 │   │   │   ├── move_group.launch           # MoveIt 核心启动
 │   │   │   └── ...
-│   │   ├── CMakeLists.txt
-│   │   └── package.xml
-│   │
-│   ├── dm_arm_msgs_srvs/                   # 自定义消息和服务
-│   │   ├── srv/
-│   │   │   └── dm_arm_cmd.srv              # 机械臂控制服务定义
 │   │   ├── CMakeLists.txt
 │   │   └── package.xml
 │   │

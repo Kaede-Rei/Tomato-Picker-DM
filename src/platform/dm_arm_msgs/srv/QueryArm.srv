@@ -1,0 +1,22 @@
+# === Request ===
+
+uint8 command_type
+uint8 GET_CURRENT_JOINTS=12
+uint8 GET_CURRENT_POSE=13
+
+# 通用数值参数
+float64[] values
+
+---
+
+# === Response ===
+
+bool success
+string message
+uint8 error_code
+
+# 标准位姿字段
+geometry_msgs/Pose cur_pose
+
+# 当前关节角列表
+float64[] cur_joint

@@ -1,0 +1,5 @@
+<launch>
+    <node pkg="dm_arm_camera" type="dm_arm_orbbec.py" name="dm_arm_orbbec" output="screen">
+        <rosparam command="load" file="$(find dm_arm_camera)/config/dm_arm_orbbec.yaml" />
+    </node>
+</launch>

@@ -1,0 +1,27 @@
+# === Request ===
+
+uint8 command_type
+uint8 SET_ORIENTATION_CONSTRAINT=9
+uint8 SET_POSITION_CONSTRAINT=10
+uint8 SET_JOINT_CONSTRAINT=11
+
+# 标准字段
+geometry_msgs/Point point
+geometry_msgs/Quaternion quaternion
+
+# 约束名称列表
+string[] joint_names
+
+# 约束关节角列表
+float64[] joints
+
+# 通用数值参数
+float64[] values
+
+---
+
+# === Response ===
+
+bool success
+string message
+uint8 error_code

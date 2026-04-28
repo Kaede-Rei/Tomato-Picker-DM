@@ -1,0 +1,52 @@
+<launch>
+    <arg name="use_camera" default="false" doc="是否启动 Gemini335L 相机和点云感知链路"/>
+    <arg name="use_fake_execution" default="false" doc="是否使用 MoveIt 假执行"/>
+    <arg name="use_rviz" default="true"/>
+    <arg name="config_file" default="$(find dm_arm_interface)/config/config.yaml"/>
+    <arg name="hardware_config_file" default="$(find dm_arm_service)/config/dm_arm_config.yaml"/>
+
+    <rosparam command="load" file="$(arg hardware_config_file)" />
+
+    <param name="robot_description" textfile="$(find dm_arm_description)/urdf/DM-Arm-Description.urdf"/>
+
+    <node name="robot_state_publisher" pkg="robot_state_publisher"
+          type="robot_state_publisher" output="screen"/>
+
+    <group unless="$(arg use_fake_execution)">
+        <node name="dm_controller" pkg="dm_ht_controller"
+              type="dm_controller" output="screen" required="true"/>
+
+        <node name="controller_spawner" pkg="controller_manager" type="spawner"
+              output="screen" respawn="false"
+              args="joint_state_controller arm_controller end_controller"/>
+    </group>
+
+    <group if="$(arg use_fake_execution)">
+        <node name="joint_state_publisher" pkg="joint_state_publisher"
+              type="joint_state_publisher" output="screen">
+            <param name="use_gui" value="false"/>
+            <rosparam param="source_list">[/move_group/fake_controller_joint_states]</rosparam>
+        </node>
+    </group>
+
+    <include file="$(find dm_arm_moveit_config)/launch/move_group.launch">
+        <arg name="allow_trajectory_execution" value="true"/>
+        <arg name="moveit_controller_manager" value="$(eval 'fake' if arg('use_fake_execution') else 'simple')"/>
+        <arg name="fake_execution_type" value="interpolate"/>
+        <arg name="info" value="true"/>
+    </include>
+
+    <group if="$(arg use_camera)">
+        <include file="$(find dm_arm_camera)/launch/dm_arm_camera.launch" />
+        <include file="$(find dm_arm_perception)/launch/dm_arm_perception.launch" />
+    </group>
+
+    <node pkg="dm_arm_interface" type="dm_arm_start" name="dm_arm_start" output="screen"
+          launch-prefix="bash -c 'sleep 3; $0 $@'">
+        <rosparam command="load" file="$(arg config_file)" />
+    </node>
+
+    <node name="rviz" pkg="rviz" type="rviz" if="$(arg use_rviz)"
+          args="-d $(find dm_arm_moveit_config)/launch/moveit.rviz"
+          launch-prefix="bash -c 'sleep 5; $0 $@'"/>
+</launch>

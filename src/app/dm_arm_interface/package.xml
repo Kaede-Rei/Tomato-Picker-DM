@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<package format="2">
+    <name>dm_arm_interface</name>
+    <version>0.0.0</version>
+    <description>The dm_arm_interface package</description>
+
+    <maintainer email="kaerei@foxmail.com">Kaede Rei</maintainer>
+
+    <license>TODO</license>
+
+    <buildtool_depend>catkin</buildtool_depend>
+
+    <depend>actionlib</depend>
+    <depend>geometry_msgs</depend>
+    <depend>moveit_core</depend>
+    <depend>moveit_ros_planning_interface</depend>
+    <depend>roscpp</depend>
+    <depend>rospy</depend>
+    <depend>dm_arm_task</depend>
+    <depend>std_msgs</depend>
+    <depend>std_srvs</depend>
+    <depend>tf2_geometry_msgs</depend>
+    <depend>tf2_ros</depend>
+
+    <depend>dm_arm_controller</depend>
+    <depend>dm_arm_commander</depend>
+    <depend>dm_arm_msgs</depend>
+    <depend>serial_driver</depend>
+
+    <export>
+
+    </export>
+</package>

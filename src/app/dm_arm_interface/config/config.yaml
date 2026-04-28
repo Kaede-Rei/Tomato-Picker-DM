@@ -1,0 +1,48 @@
+start:
+  arm_group_name: "arm"
+  eef:
+    enabled: true
+    type: "dm_arm_can_gripper" # dm_arm_can_gripper | two_finger_gripper | servo_gripper
+    name: "dm_arm_can_gripper"
+    serial_port: "/dev/com-1.4-tty"
+    baud_rate: 115200
+
+  arm_move_action:
+    enabled: true
+    name: "move_arm"
+  simple_arm_move_action:
+    enabled: true
+    name: "simple_move_arm"
+  arm_config_service:
+    enabled: true
+    name: "arm_config"
+  arm_query_service:
+    enabled: true
+    name: "arm_query"
+
+  pick_action:
+    enabled: true
+    name: "pick_action"
+
+  eef_cmd_service:
+    enabled: true
+    name: "eef_cmd"
+
+decartes:
+  vel_scale: 1.0
+  acc_scale: 1.0
+  eef_step: 0.01
+  jump_threshold: 0.0
+  min_success_rate: 0.8
+
+motion_planning:
+  planning_time: 5.0
+  planning_attempts: 10
+  max_velocity_scaling_factor: 1.0
+  max_acceleration_scaling_factor: 1.0
+  planner_id: "RRTConnect"
+
+reachable_pose_search:
+  step_deg: 5.0
+  radius_deg: 60.0
+

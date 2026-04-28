@@ -1,0 +1,6 @@
+string command
+string param1
+string param2
+---
+bool success
+string message

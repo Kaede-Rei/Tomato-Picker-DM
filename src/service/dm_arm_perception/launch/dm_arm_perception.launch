@@ -1,0 +1,5 @@
+<launch>
+    <node pkg="dm_arm_perception" type="cloud_preprocessor" name="cloud_preprocessor" output="screen">
+        <rosparam command="load" file="$(find dm_arm_perception)/config/dm_arm_perception.yaml" />
+    </node>
+</launch>

@@ -1,0 +1,35 @@
+camera_name: gemini335l
+
+color_width: 1280
+color_height: 720
+color_fps: 30
+
+depth_width: 1280
+depth_height: 800
+depth_fps: 30
+
+align_mode: sw
+rotate_180: false
+
+min_depth_m: 0.10
+max_depth_m: 10.0
+
+enable_lrm: true
+publish_rate: 30.0
+
+distortion_model: plumb_bob
+color_distortion: [0.0, 0.0, 0.0, 0.0, 0.0]
+depth_distortion: [0.0, 0.0, 0.0, 0.0, 0.0]
+
+color_frame_id: eef_camera_color_optical_frame
+depth_frame_id: eef_camera_depth_optical_frame
+depth_registered_frame_id: eef_camera_color_optical_frame
+
+hand_eye:
+  T_cam_to_flange:
+    - [0.164723, -0.986262, -0.012365, 0.038744]
+    - [0.986069, 0.164370, 0.025507, -0.020338]
+    - [-0.023125, -0.016394, 0.999598, 0.072264]
+    - [0.000000, 0.000000, 0.000000, 1.000000]    
+
+  flange_id: link6-7

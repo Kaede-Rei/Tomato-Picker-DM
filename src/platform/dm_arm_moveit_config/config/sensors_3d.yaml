@@ -1,0 +1,9 @@
+sensors:
+  - filtered_cloud_topic: /dm_arm/moveit/filtered_cloud
+    max_range: 1.0
+    max_update_rate: 20.0
+    padding_offset: 0.01
+    padding_scale: 1.0
+    point_cloud_topic: /dm_arm/perception/cloud/filtered
+    point_subsample: 2
+    sensor_plugin: occupancy_map_monitor/PointCloudOctomapUpdater

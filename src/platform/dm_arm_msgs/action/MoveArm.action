@@ -1,0 +1,57 @@
+# === Goal ===
+
+uint8 command_type
+uint8 HOME=0
+uint8 MOVE_JOINTS=1
+uint8 MOVE_TARGET=2
+uint8 MOVE_TARGET_IN_EEF_FRAME=3
+uint8 TELESCOPIC_END=4
+uint8 ROTATE_END=5
+uint8 MOVE_LINE=6
+uint8 MOVE_BEZIER=7
+uint8 MOVE_DECARTES=8
+uint8 MOVE_TO_ZERO=14
+
+# 标准位姿字段
+uint8 target_type
+uint8 TARGET_POSE=0
+uint8 TARGET_POINT=1
+uint8 TARGET_QUATERNION=2
+geometry_msgs/Pose pose
+geometry_msgs/Point point
+geometry_msgs/Quaternion quaternion
+geometry_msgs/Pose[] waypoints
+
+# 目标关节名称
+string[] joint_names
+
+# 关节目标
+float64[] joints
+
+# 通用数值参数
+float64[] values
+
+---
+
+# === Result ===
+
+bool success
+string message
+uint8 error_code
+
+# 标准位姿字段
+geometry_msgs/Pose cur_pose
+
+# 当前关节角列表
+float64[] cur_joint
+
+# 通用数值参数
+float64[] values
+
+---
+
+# === Feedback ===
+
+string stage
+float64 progress
+string message

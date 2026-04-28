@@ -1,0 +1,127 @@
+# ===== Goal =====
+
+# 请求类型
+uint8 request_type
+uint8 UPSERT_TASK=0
+uint8 EXECUTE_TASK_GROUP=1
+uint8 UPDATE_TASK_GROUP_CONFIG=2
+
+# 任务组名称
+string group_name
+
+# 任务 ID，可由 GUI 生成，也可传 0 让服务端自生成
+uint32 id
+
+# 任务组排序方式
+uint8 group_sort_type
+uint8 GROUP_SORT_ID=0
+uint8 GROUP_SORT_DIST=1
+
+# 距离排序中的姿态权重，仅在 GROUP_SORT_DIST 下生效
+float32 group_dist_weight_orient
+
+# 任务组执行完成后是否回到初始位
+bool group_go_home_after_finish
+
+
+# 任务类型
+uint8 task_type
+uint8 TASK_MOVE_ONLY=0
+uint8 TASK_PICK=1
+
+# 可选描述
+string description
+
+# 任务目标类型
+uint8 target_type
+uint8 TARGET_NONE=0
+uint8 TARGET_POSE=1
+uint8 TARGET_POINT=2
+uint8 TARGET_QUATERNION=3
+uint8 TARGET_POSE_STAMPED=4
+
+# 任务目标
+geometry_msgs/Pose target_pose
+geometry_msgs/Point target_point
+geometry_msgs/Quaternion target_quaternion
+geometry_msgs/PoseStamped target_pose_stamped
+
+# 当 target_type 为 Pose / Point / Quaternion 时必须显式提供
+string target_frame_id
+
+# 是否启用放置动作
+bool use_place_pose
+
+# 放置目标类型
+uint8 place_target_type
+uint8 PLACE_TARGET_NONE=0
+uint8 PLACE_TARGET_POSE=1
+uint8 PLACE_TARGET_POINT=2
+uint8 PLACE_TARGET_POSE_STAMPED=3
+
+# 放置目标
+geometry_msgs/Pose place_pose
+geometry_msgs/Point place_point
+geometry_msgs/PoseStamped place_pose_stamped
+
+# 当 place_target_type 为 Pose / Point 时必须显式提供
+string place_frame_id
+
+# 是否执行夹爪动作
+bool use_eef
+
+# 是否在取消后自动回安全位
+bool go_safe_after_cancel
+
+# 最大重试次数
+uint8 retry_times
+
+---
+
+# ===== Result =====
+
+# 是否整体成功
+bool success
+
+# 最终状态码
+int32 error_code
+
+# 失败发生在哪个阶段
+uint8 failed_stage
+
+# 文字说明
+string message
+
+# 实际完成的步骤数量
+uint32 completed_steps
+
+# 是否是由于 cancel 结束
+bool canceled
+
+# 任务结束时机械臂当前位姿
+geometry_msgs/PoseStamped final_pose
+
+---
+
+# ===== Feedback =====
+
+# 当前阶段
+uint8 current_stage
+
+# 当前步骤索引
+uint32 current_step_index
+
+# 当前步骤总数
+uint32 total_steps
+
+# 当前阶段说明
+string stage_text
+
+# 最近一次底层调用是否成功
+bool last_substep_success
+
+# 最近一次底层调用返回码
+int32 last_error_code
+
+# 当前机械臂位姿
+geometry_msgs/PoseStamped current_pose

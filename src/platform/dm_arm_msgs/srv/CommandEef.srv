@@ -1,0 +1,17 @@
+# === Request ===
+
+uint8 command_type
+uint8 OPEN_GRIPPER = 0
+uint8 CLOSE_GRIPPER = 1
+uint8 STOP_GRIPPER = 2
+
+# 通用数值参数
+float64[] values
+
+---
+
+# === Response ===
+
+bool success
+string message
+uint8 error_code

@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<package format="2">
+    <!-- ========================= 基本信息(必填) ========================= -->
+    <!-- TODO: 包名必须与 CMakeLists.txt 中的 project() 完全一致 -->
+    <name>dm_arm_camera</name>
+    <version>0.0.1</version>
+    <description>ROS1 catkin feature package</description>
+    <maintainer email="kaerei@foxmail.com">Kaede Rei</maintainer>
+    <license>MIT</license>
+
+    <!-- ========================= 可选信息 ========================= -->
+    <!-- <author email="author@example.com">Author Name</author> -->
+    <!-- <url type="website">https://github.com/username/repository</url> -->
+    <!-- <url type="repository">https://github.com/username/repository</url> -->
+    <!-- <url type="bugtracker">https://github.com/username/repository/issues</url> -->
+
+    <!-- ========================= 构建工具依赖(必填) ========================= -->
+    <buildtool_depend>catkin</buildtool_depend>
+
+    <!-- ========================= 常规依赖(按需添加) ========================= -->
+    <!-- TODO: 最简单的写法可直接用 depend；如果依赖你自己的接口包，也写在这里 -->
+    <depend>rospy</depend>
+    <depend>std_msgs</depend>
+    <depend>sensor_msgs</depend>
+    <depend>cv_bridge</depend>
+
+    <!-- TODO: 如需更细粒度控制，也可以拆成 build / build_export / exec -->
+    <!-- <build_depend>roscpp</build_depend> -->
+    <!-- <build_export_depend>roscpp</build_export_depend> -->
+    <!-- <exec_depend>roscpp</exec_depend> -->
+
+    <!-- TODO: 如需 Python 运行时，可按需取消注释 -->
+    <!-- <exec_depend>python3</exec_depend> -->
+
+    <!-- ========================= 测试依赖(可选) ========================= -->
+    <!-- <test_depend>rostest</test_depend> -->
+    <!-- <test_depend>rosunit</test_depend> -->
+
+</package>
