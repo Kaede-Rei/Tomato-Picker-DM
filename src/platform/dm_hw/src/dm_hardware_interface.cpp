@@ -10,6 +10,8 @@ namespace dm_hw {
 namespace {
 
 constexpr double kMinShutdownDuration = 0.5;
+constexpr double kGripperLead = 0.053;
+constexpr double kTwoPi = 2.0 * M_PI;
 
 } // namespace
 
@@ -17,24 +19,11 @@ DmHardwareInterface::DmHardwareInterface(ros::NodeHandle& nh)
     : nh_(nh) {}
 
 DmHardwareInterface::~DmHardwareInterface() {
-    if(return_zero_on_shutdown_) {
-        try {
-            returnZero();
-        }
-        catch(const std::exception& e) {
-            ROS_ERROR("关机回零失败: %s", e.what());
-        }
+    try {
+        shutdown(return_zero_on_shutdown_);
     }
-
-    if(motor_controller_) {
-        for(auto& motor : motors_) {
-            try {
-                motor_controller_->disable(*motor);
-            }
-            catch(const std::exception& e) {
-                ROS_ERROR("失能电机失败: %s", e.what());
-            }
-        }
+    catch(const std::exception& e) {
+        ROS_ERROR("dm_hw 关闭失败: %s", e.what());
     }
 }
 
@@ -62,10 +51,10 @@ bool DmHardwareInterface::init() {
     register_ros_control_interfaces();
 
     ROS_INFO("dm_hw 初始化完成: joints=%zu, control_frequency=%.1f Hz, mode=%s, enable_write=%s",
-             joint_names_.size(),
-             control_frequency_,
-             use_mit_mode_ ? "MIT" : "POS_VEL",
-             enable_write_ ? "true" : "false");
+        joint_names_.size(),
+        control_frequency_,
+        use_mit_mode_ ? "MIT" : "POS_VEL",
+        enable_write_ ? "true" : "false");
     return true;
 }
 
@@ -106,10 +95,37 @@ bool DmHardwareInterface::load_params() {
 
     const std::size_t joint_count = joint_names_.size();
     if(motor_ids_.size() != joint_count ||
-       motor_types_.size() != joint_count ||
-       master_ids_.size() != joint_count) {
+        motor_types_.size() != joint_count ||
+        master_ids_.size() != joint_count) {
         ROS_ERROR("dm_arm_hardware/joints 下 names、motor_ids、motor_types、master_ids 数量必须一致");
         return false;
+    }
+
+    motor_to_joint_scale_.assign(joint_count, 1.0);
+    joint_to_motor_scale_.assign(joint_count, 1.0);
+    for(std::size_t i = 0; i < joint_count; ++i) {
+        if(joint_names_[i] == "gripper_left") {
+            motor_to_joint_scale_[i] = kGripperLead / kTwoPi;
+            joint_to_motor_scale_[i] = kTwoPi / kGripperLead;
+        }
+    }
+
+    std::vector<double> configured_motor_to_joint_scale;
+    if(nh_.getParam("dm_arm_hardware/joints/motor_to_joint_scale", configured_motor_to_joint_scale)) {
+        if(configured_motor_to_joint_scale.size() != joint_count) {
+            ROS_ERROR("dm_arm_hardware/joints/motor_to_joint_scale 数量必须与 names 一致");
+            return false;
+        }
+        motor_to_joint_scale_ = configured_motor_to_joint_scale;
+    }
+
+    std::vector<double> configured_joint_to_motor_scale;
+    if(nh_.getParam("dm_arm_hardware/joints/joint_to_motor_scale", configured_joint_to_motor_scale)) {
+        if(configured_joint_to_motor_scale.size() != joint_count) {
+            ROS_ERROR("dm_arm_hardware/joints/joint_to_motor_scale 数量必须与 names 一致");
+            return false;
+        }
+        joint_to_motor_scale_ = configured_joint_to_motor_scale;
     }
 
     if(control_frequency_ <= 0.0) {
@@ -145,8 +161,13 @@ bool DmHardwareInterface::setup_motors() {
         motor_controller_->add_motor(motor.get());
         motors_.push_back(motor);
 
-        ROS_INFO("dm_hw 添加电机: joint=%s, slave_id=0x%X, master_id=0x%X, type=%d",
-                 joint_names_[i].c_str(), motor_ids_[i], master_ids_[i], motor_types_[i]);
+        ROS_INFO("dm_hw 添加电机: joint=%s, slave_id=0x%X, master_id=0x%X, type=%d, motor_to_joint=%.9f, joint_to_motor=%.9f",
+            joint_names_[i].c_str(),
+            motor_ids_[i],
+            master_ids_[i],
+            motor_types_[i],
+            motor_to_joint_scale_[i],
+            joint_to_motor_scale_[i]);
     }
 
     for(std::size_t i = 0; i < motors_.size(); ++i) {
@@ -190,6 +211,8 @@ void DmHardwareInterface::register_ros_control_interfaces() {
 }
 
 void DmHardwareInterface::read() {
+    std::lock_guard<std::recursive_mutex> lock(hardware_mutex_);
+    if(hardware_shutdown_) return;
     if(!motor_controller_) return;
 
     for(std::size_t i = 0; i < motors_.size(); ++i) {
@@ -203,13 +226,13 @@ void DmHardwareInterface::read() {
             const double effort = motors_[i]->get_tau();
 
             if(std::isfinite(position)) {
-                joint_position_[i] = position;
+                joint_position_[i] = position * motor_to_joint_scale_[i];
             }
             else {
                 ROS_WARN_THROTTLE(1.0, "关节 %s 位置反馈无效，保持上一周期状态", joint_names_[i].c_str());
             }
 
-            joint_velocity_[i] = std::isfinite(velocity) ? velocity : 0.0;
+            joint_velocity_[i] = std::isfinite(velocity) ? velocity * motor_to_joint_scale_[i] : 0.0;
             joint_effort_[i] = std::isfinite(effort) ? effort : 0.0;
         }
         catch(const std::exception& e) {
@@ -219,6 +242,8 @@ void DmHardwareInterface::read() {
 }
 
 void DmHardwareInterface::write() {
+    std::lock_guard<std::recursive_mutex> lock(hardware_mutex_);
+    if(hardware_shutdown_) return;
     if(!enable_write_ || !motor_controller_) return;
 
     const double dt = 1.0 / control_frequency_;
@@ -232,8 +257,8 @@ void DmHardwareInterface::write() {
                 cmd = prev + std::copysign(max_position_change_, position_change);
                 joint_position_command_[i] = cmd;
                 ROS_WARN_THROTTLE(1.0,
-                                  "关节 %s 单周期命令变化 %.4f rad 超限，已限制为 %.4f rad",
-                                  joint_names_[i].c_str(), position_change, cmd - prev);
+                    "关节 %s 单周期命令变化 %.4f rad 超限，已限制为 %.4f rad",
+                    joint_names_[i].c_str(), position_change, cmd - prev);
             }
 
             double target_velocity = (cmd - prev) / dt;
@@ -242,11 +267,21 @@ void DmHardwareInterface::write() {
             }
             target_velocity = std::clamp(target_velocity, -max_velocity_, max_velocity_);
 
+            const double motor_cmd = cmd * joint_to_motor_scale_[i];
+            const double motor_target_velocity = target_velocity * joint_to_motor_scale_[i];
+
             if(use_mit_mode_) {
-                motor_controller_->control_mit(*motors_[i], kp_, kd_, static_cast<float>(cmd), static_cast<float>(target_velocity), 0.0f);
+                motor_controller_->control_mit(*motors_[i],
+                    kp_,
+                    kd_,
+                    static_cast<float>(motor_cmd),
+                    static_cast<float>(motor_target_velocity),
+                    0.0f);
             }
             else {
-                motor_controller_->control_pos_vel(*motors_[i], static_cast<float>(cmd), static_cast<float>(target_velocity));
+                motor_controller_->control_pos_vel(*motors_[i],
+                    static_cast<float>(motor_cmd),
+                    static_cast<float>(motor_target_velocity));
             }
 
             joint_position_command_prev_[i] = cmd;
@@ -257,7 +292,9 @@ void DmHardwareInterface::write() {
     }
 }
 
-void DmHardwareInterface::returnZero() {
+void DmHardwareInterface::return_zero() {
+    std::lock_guard<std::recursive_mutex> lock(hardware_mutex_);
+    if(hardware_shutdown_) return;
     if(!motor_controller_ || motors_.empty() || joint_position_.empty()) return;
 
     ROS_INFO("dm_hw 开始回零");
@@ -275,7 +312,7 @@ void DmHardwareInterface::returnZero() {
     const double duration = std::max(kMinShutdownDuration, max_diff / safe_velocity);
     const int steps = std::max(1, static_cast<int>(duration * control_frequency_));
 
-    for(int step = 0; ros::ok() && step <= steps; ++step) {
+    for(int step = 0; step <= steps; ++step) {
         const double t = static_cast<double>(step) / static_cast<double>(steps);
         const double alpha = t * t * (3.0 - 2.0 * t);
         for(std::size_t i = 0; i < joint_position_command_.size(); ++i) {
@@ -285,6 +322,37 @@ void DmHardwareInterface::returnZero() {
         usleep(static_cast<useconds_t>(1000000.0 / control_frequency_));
     }
     ROS_INFO("dm_hw 回零完成");
+}
+
+void DmHardwareInterface::shutdown(bool do_return_zero) {
+    std::lock_guard<std::recursive_mutex> lock(hardware_mutex_);
+    if(hardware_shutdown_) return;
+
+    if(do_return_zero) {
+        try {
+            return_zero();
+        }
+        catch(const std::exception& e) {
+            ROS_ERROR("关机回零失败: %s", e.what());
+        }
+    }
+
+    if(motor_controller_) {
+        ROS_INFO("dm_hw 开始失能电机");
+        for(std::size_t i = 0; i < motors_.size(); ++i) {
+            try {
+                motor_controller_->disable(*motors_[i]);
+                ROS_INFO("dm_hw 电机已失能: %s", joint_names_[i].c_str());
+            }
+            catch(const std::exception& e) {
+                ROS_ERROR("失能电机 %s 失败: %s", joint_names_[i].c_str(), e.what());
+            }
+        }
+    }
+
+    hardware_shutdown_ = true;
+    enable_write_ = false;
+    ROS_INFO("dm_hw 硬件接口已关闭");
 }
 
 speed_t DmHardwareInterface::baudrate_to_speed(int baudrate) const {

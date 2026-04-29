@@ -1,977 +1,736 @@
 <div align="center">
 
-# DM-Arm-ROS: 达妙六轴机械臂ROS控制系统
+# DM-Arm ROS: 达妙机械臂 ROS 控制系统
 
-一个基于 ROS Noetic 和 MoveIt! 的达妙六轴机械臂控制框架，集成了从硬件接口、运动规划到高层服务的全流程控制系统，应用于广东省农科院樱桃番茄采摘机器人
+基于 **ROS Noetic + MoveIt + dm_hw + DM-Arm + 可选 Gemini335L 腕上相机** 的机械臂控制与采摘实验工作区
+
+本项目由 `piper-ws` 上层架构移植而来，保留“接口层 -> 命令层 -> 控制层 -> MoveIt -> 硬件层”的分层结构，将底层硬件接口替换为 `dm_hw` 达妙电机串口/USB-CAN 控制链路；相机与点云感知链路为可选项，默认不启动
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![ROS: Noetic](https://img.shields.io/badge/ROS-Noetic-blue.svg)](http://wiki.ros.org/noetic)
-[![Framework: MoveIt!](https://img.shields.io/badge/Framework-MoveIt!-green.svg)](https://moveit.ros.org/)
-[![Hardware: DM Motor](https://img.shields.io/badge/Hardware-DM%20Motor-red.svg)](http://www.damiaotech.com/)
+[![Framework: MoveIt](https://img.shields.io/badge/Framework-MoveIt-green.svg)](https://moveit.ros.org/)
+[![Hardware: dm_hw](https://img.shields.io/badge/Hardware-dm__hw-red.svg)](src/platform/dm_hw)
+[![Camera: Optional](https://img.shields.io/badge/Camera-Optional-orange.svg)](src/device/dm_arm_camera)
 
 </div>
 
-## 🤖 系统架构
+---
 
-### 硬件配置
+## 1. 系统能力概览
 
-| 组件           | 型号/要求                               | 说明                 |
-| -------------- | --------------------------------------- | -------------------- |
-| 机械臂         | 达妙 6-DOF 机械臂                        | 6 个达妙无刷电机驱动 |
-| 电机型号       | DM4310 / DM4340                          | 支持 24V/48V 版本    |
-| 夹爪           | DM4310                          | 单自由度抓取控制     |
-| 电源           | 24V 工业开关电源/可调电源                | 推荐 >= 10A 输出     |
-| USB-CAN 适配器 | 达妙官方 USB-CAN 盒子                    | CAN 总线通信         |
-| 主控           | Ubuntu 20.04 工控机/计算机         | >= 4 核 CPU, >= 8GB RAM |
-| 串口设备       | `/dev/ttyACM*`         | USB 转 CAN 通信端口  |
-
-**硬件连接示意：**
-```
-[24V 电源] ──► [达妙转接板] ──► [机械臂底座]
-                   │
-              [USB-CAN 盒子]
-                   │
-            [Type-C to 工控机]
-```
-
-### 软件栈
-
-- **操作系统**: Ubuntu 20.04 LTS
-- **ROS 版本**: ROS Noetic
-- **运动规划**: MoveIt! + ros_control
-- **硬件接口**: 自定义 `dm_ht_controller` (实现 `hardware_interface::RobotHW`)
-- **控制器**: `joint_state_controller` + `joint_trajectory_controller`
-- **规划器**: RRTConnect / CHOMP / STOMP / Pilz Industrial Motion Planner
-- **业务服务**: `dm_arm_service` (提供末端位姿控制和任务规划服务)
-- **通信协议**: CAN 总线 (达妙电机) + ROS 服务/话题
+- 达妙 DM-Arm ROS1 Noetic 硬件接口接入
+- `dm_hw` 基于 `ros_control` 暴露 `PositionJointInterface`
+- `joint1..joint6` 通过 `arm_controller` 接入 MoveIt
+- `gripper_left` 通过 `end_controller` 接入 MoveIt `end` group，对应达妙电机 `0x07`
+- MoveIt 规划、执行与当前状态查询
+- `/move_arm`、`/simple_move_arm`、`/pick_action`、`/arm_config`、`/arm_query`、`/eef_cmd` 接口
+- fake controller 链路，用于不连接真机时验证上层、MoveIt 和接口逻辑
+- Gemini335L 腕上相机接入为可选项，默认关闭
+- 点云生成、TF 变换、工作空间裁剪、VoxelGrid 降采样、SOR 离群点滤波
+- MoveIt Octomap 点云输入开关与异步清图
+- 采摘任务阶段机
+- 接近/采摘/退出阶段 `link6` 临时 ACM 放行
+- 取消任务、停止执行、回安全位流程
 
 ---
 
-## 📋 快速开始
+## 2. 推荐使用场景
 
-### 1. 环境准备
+当前版本适合：
 
-#### 系统依赖
+- 先在 fake controller 中验证上层控制链路
+- DM-Arm 真机控制链路调试
+- 达妙电机 ID、类型、串口、波特率、控制模式调试
+- MoveIt 规划参数、笛卡尔路径参数调试
+- 可选腕上相机手眼标定、深度估计和点云避障验证
+- 采摘动作任务流验证
+
+当前版本不建议直接用于：
+
+- 未完成真机限位和急停验证的长时间自动运行
+- 未确认 `dm_hw/config/dm_controller.yaml` 中电机类型和 ID 的真机上电测试
+- 底盘移动过程中持续维护全局 Octomap
+- 未经人工检查的长时间自主采摘
+- 未做对象分割的复杂枝叶环境精细避障
+
+---
+
+## 3. 硬件与软件栈
+
+| 类别 | 当前配置 |
+|---|---|
+| 机械臂 | DM-Arm / 达妙电机链路 |
+| 硬件接口 | `dm_hw`，串口/USB-CAN |
+| 末端执行器 | `gripper_left`，默认电机 ID `0x07` |
+| 相机 | Orbbec Gemini335L，可选 |
+| 主机 | Ubuntu 20.04 原生 ROS Noetic，或 Ubuntu 22.04 + micromamba ROS Noetic 虚拟环境 |
+| ROS | ROS Noetic |
+| 规划 | MoveIt 1 |
+| 控制 | ros_control, controller_manager, JointTrajectoryController |
+| 点云处理 | PCL, pcl_ros, tf2_sensor_msgs |
+| GUI | Python, PyQt5, OpenCV |
+
+---
+
+## 4. 项目结构
+
+```text
+dm-ws/
+├── README.md
+├── dm-arm-start.sh                  # 总启动脚本
+├── dm-arm-test.sh                   # 交互式测试脚本
+├── ros_env/                         # ROS Noetic 虚拟环境辅助脚本
+├── scripts/                         # 工作区级辅助脚本
+├── piper-ws/                        # 原始 piper-ws 参考工作区
+└── src/
+    ├── platform/
+    │   ├── dm_hw/                   # 达妙硬件接口与 ros_control 入口
+    │   ├── dm_arm_msgs/             # 自定义 Action/Service/Msg
+    │   ├── dm_arm_description/      # URDF 与 meshes
+    │   ├── dm_arm_moveit_config/    # MoveIt 配置
+    │   └── dm_arm_controller/       # MoveIt 控制与运动规划封装
+    ├── device/
+    │   └── dm_arm_camera/           # Gemini335L 相机节点，可选
+    ├── service/
+    │   ├── dm_arm_commander/        # 命令分发
+    │   ├── dm_arm_perception/       # 点云生成与 Octomap 输入控制
+    │   └── dm_arm_acm_guard/        # 采摘阶段 ACM 控制
+    ├── app/
+    │   ├── dm_arm_interface/        # ROS Action/Service 接口层
+    │   ├── dm_arm_task/             # 任务管理与采摘状态机
+    │   └── dm_arm_gui/              # ROI 选点与任务下发 GUI
+    ├── domain/
+    │   └── trac_ik/                 # TRAC-IK
+    └── infra/
+        ├── serial/                  # 串口基础库
+        ├── tl_expected/
+        └── tl_optional/
+```
+
+---
+
+## 5. 快速开始
+
+### 5.1 环境选择
+
+本工作区支持两种 ROS Noetic 使用方式：
+
+| 场景 | 推荐方式 | 说明 |
+|---|---|---|
+| Ubuntu 20.04 | 原生 ROS Noetic | 使用系统 apt 安装 ROS Noetic 和依赖 |
+| Ubuntu 22.04 或需要隔离依赖 | micromamba 虚拟环境 | 使用 `mamba-usb rosnoetic` 进入工作区约定的 ROS1 Noetic 环境 |
+
+`dm-arm-start.sh` 和 `dm-arm-test.sh` 不会主动调用 `mamba-usb`；它们只检查当前环境是否为 Noetic，因此运行前需要先进入原生 Noetic shell 或虚拟环境
+
+### 5.2 Ubuntu 20.04 原生 ROS Noetic
 
 ```bash
-# Ubuntu 20.04 系统
 sudo apt update
+sudo apt install -y \
+  git build-essential cmake python3-dev curl \
+  ros-noetic-desktop-full \
+  ros-noetic-moveit \
+  ros-noetic-ros-control \
+  ros-noetic-ros-controllers \
+  ros-noetic-controller-manager \
+  ros-noetic-joint-trajectory-controller \
+  ros-noetic-joint-state-controller \
+  ros-noetic-pcl-ros \
+  ros-noetic-pcl-conversions \
+  ros-noetic-tf2-sensor-msgs \
+  ros-noetic-moveit-ros-perception
 
-# 安装 ROS Noetic（如果未安装）
-sudo sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list'
-sudo apt install curl
-curl -s https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | sudo apt-key add -
-sudo apt update
-sudo apt install ros-noetic-desktop-full
-
-# 安装 MoveIt 和 ros_control 相关包
-sudo apt install ros-noetic-moveit \
-                 ros-noetic-controller-manager \
-                 ros-noetic-joint-trajectory-controller \
-                 ros-noetic-joint-state-controller \
-                 ros-noetic-effort-controllers \
-                 ros-noetic-position-controllers \
-                 ros-noetic-rviz \
-                 ros-noetic-ros-controllers \
-                 ros-noetic-gazebo-ros-pkgs \
-                 ros-noetic-gazebo-ros-control
-
-# 配置串口权限
 sudo usermod -aG dialout $USER
-sudo reboot  # 重启使权限生效
 ```
 
-#### ROS 环境
+重新登录后进入工作区：
 
 ```bash
-# 在 ~/.bashrc 中添加 ROS 环境配置
-echo "source /opt/ros/noetic/setup.bash" >> ~/.bashrc
-source ~/.bashrc
+cd /path/to/dm-ws
+source /opt/ros/noetic/setup.bash
 ```
 
-### 2. 源码获取与编译
+### 5.3 Ubuntu 22.04 / micromamba 虚拟环境
 
 ```bash
-# 创建工作空间
-mkdir -p ~/dm_arm_ws/src
-cd ~/dm_arm_ws/src
+cd /path/to/dm-ws
+mamba-usb rosnoetic
+. ./ros_env/source-dm-arm.sh
+```
 
-# 克隆项目（替换为你的仓库地址）
-git clone https://github.com/your-username/Tomato-Picker-DM.git .
+虚拟环境说明见：
 
-# 初始化工作空间
-cd ~/dm_arm_ws/src
-catkin_init_workspace
+```text
+ros_env/README.md
+```
 
-# 编译
-cd ~/dm_arm_ws
-catkin_make
+### 5.4 编译
 
-# 配置环境
+虚拟环境推荐编译方式：
+
+```bash
+cd /path/to/dm-ws
+mamba-usb rosnoetic
+. ./ros_env/source-dm-arm.sh
+. ./ros_env/use-mamba-gcc.sh && catkin_make \
+  -DCATKIN_ENABLE_TESTING=OFF \
+  -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+```
+
+原生 ROS Noetic 编译方式：
+
+```bash
+cd /path/to/dm-ws
+source /opt/ros/noetic/setup.bash
+catkin_make \
+  -DCATKIN_ENABLE_TESTING=OFF \
+  -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 source devel/setup.bash
-echo "source ~/dm_arm_ws/devel/setup.bash" >> ~/.bashrc
 ```
 
-### 3. 硬件连接
+---
 
-#### 电源连接
+## 6. 启动系统
 
-1. **机械臂供电**: 24V 电源 → 达妙转接板 → 机械臂底座（XT30(2+2) 端口）
-2. **转接板供电**: 24V 电源 → 转接板 XT30 端口
+### 6.1 fake controller 链路
 
-#### 通信连接
+fake controller 不连接 `dm_hw`，用于先验证上层、MoveIt、Action/Service 和 GUI：
 
-1. **USB-CAN 盒子**: Type-C 线连接到工控机/计算机
-2. **端口识别**:
-   ```bash
-   # 查看串口设备
-   ls -l /dev/ttyACM*  # 达妙 USB-CAN 常为 /dev/ttyACM0
-   ls -l /dev/ttyUSB*  # 其他串口设备
-   
-   # 查看设备详细信息
-   dmesg | grep tty
-   ```
+```bash
+./dm-arm-start.sh --fake
+```
 
-#### 端口配置
+不启动 RViz：
 
-编辑配置文件 [dm_arm_service/config/dm_arm_config.yaml](src/dm_arm_service/config/dm_arm_config.yaml)：
+```bash
+./dm-arm-start.sh --fake --no-rviz
+```
+
+手动启动：
+
+```bash
+roslaunch dm_arm_interface dm_arm_start.launch \
+  use_fake_execution:=true \
+  use_camera:=false \
+  use_rviz:=true
+```
+
+### 6.2 真机链路
+
+真机链路会启动 `dm_hw`、`joint_state_controller`、`arm_controller`、`end_controller` 和上层接口：
+
+```bash
+./dm-arm-start.sh
+```
+
+指定串口和波特率：
+
+```bash
+./dm-arm-start.sh --serial-port /dev/ttyUSB0 --baudrate 921600
+```
+
+指定硬件配置文件：
+
+```bash
+./dm-arm-start.sh --hardware-config /path/to/dm_controller.yaml
+```
+
+手动启动：
+
+```bash
+roslaunch dm_arm_interface dm_arm_start.launch \
+  use_fake_execution:=false \
+  use_camera:=false \
+  use_rviz:=true \
+  hardware_serial_port:=/dev/ttyUSB0 \
+  hardware_baudrate:=921600
+```
+
+### 6.3 可选相机与感知链路
+
+相机和点云感知默认不启动；需要时显式开启：
+
+```bash
+./dm-arm-start.sh --with-camera
+```
+
+fake controller 中也可以开启相机链路：
+
+```bash
+./dm-arm-start.sh --fake --with-camera
+```
+
+---
+
+## 7. dm_hw 硬件配置
+
+默认配置文件：
+
+```text
+src/platform/dm_hw/config/dm_controller.yaml
+```
+
+默认电机映射：
+
+| ROS 关节 | 电机 ID | 控制器 |
+|---|---:|---|
+| `joint1` | `0x01` | `arm_controller` |
+| `joint2` | `0x02` | `arm_controller` |
+| `joint3` | `0x03` | `arm_controller` |
+| `joint4` | `0x04` | `arm_controller` |
+| `joint5` | `0x05` | `arm_controller` |
+| `joint6` | `0x06` | `arm_controller` |
+| `gripper_left` | `0x07` | `end_controller` |
+
+关键参数：
+
+- `dm_arm_hardware/serial_port`：USB-CAN 串口设备，启动参数可覆盖
+- `dm_arm_hardware/baudrate`：串口波特率，启动参数可覆盖
+- `dm_arm_hardware/control_frequency`：控制循环频率
+- `dm_arm_hardware/use_mit_mode`：`true` 使用 MIT 控制；`false` 使用位置速度控制
+- `dm_arm_hardware/enable_write`：真机写入开关
+- `dm_arm_hardware/return_zero_on_shutdown`：节点退出时是否尝试回零
+- `dm_arm_hardware/joints/motor_ids`：达妙电机 CAN ID
+- `dm_arm_hardware/joints/motor_types`：`damiao::DmMotorType` 枚举值
+- `dm_arm_hardware/joints/motor_to_joint_scale`：电机反馈到 ROS 关节单位的比例
+- `dm_arm_hardware/joints/joint_to_motor_scale`：ROS 关节命令到电机单位的比例
+
+`gripper_left` 是 URDF 中的 prismatic 关节，默认按丝杆导程 `0.053m/rev` 做单位换算。
+
+---
+
+## 8. 配置文件说明
+
+常用配置文件总览：
+
+| 文件 | 作用 | 常改参数 |
+|---|---|---|
+| `src/app/dm_arm_interface/config/config.yaml` | 上层接口、MoveIt group、EEF、规划参数 | action/service 名称、EEF group、规划时间、速度/加速度比例 |
+| `src/platform/dm_hw/config/dm_controller.yaml` | 真机硬件接口和 ros_control controller | 串口、波特率、电机 ID、电机类型、回零、限速、夹爪换算 |
+| `src/device/dm_arm_camera/config/dm_arm_orbbec.yaml` | Gemini335L 相机节点 | 分辨率、帧率、对齐、深度范围、手眼矩阵 |
+| `src/service/dm_arm_perception/config/dm_arm_perception.yaml` | 点云生成和滤波 | 输入 topic、目标 frame、工作空间裁剪、降采样、SOR |
+| `src/platform/dm_arm_moveit_config/config/*.yaml` | MoveIt 规划、控制器、限位、传感器配置 | controller 映射、joint limit、kinematics、Octomap 输入 |
+
+### 8.1 `dm_arm_interface/config/config.yaml`
+
+这个文件决定上层接口如何连接 MoveIt、EEF 和 ROS Action/Service：
+
+```yaml
+start:
+  arm_group_name: "arm"
+  eef:
+    enabled: true
+    type: "two_finger_gripper"
+    name: "end"
+```
+
+关键参数：
+
+- `start/arm_group_name`：机械臂 MoveIt group，必须和 SRDF 中的 `arm` 一致。
+- `start/eef/enabled`：是否启用 EEF 控制接口。若只测试机械臂本体，可设为 `false`。
+- `start/eef/type`：当前 DM-Arm 夹爪使用 `two_finger_gripper`，通过 MoveIt `end` group 规划执行。
+- `start/eef/name`：EEF MoveIt group，当前必须为 `end`。不要改回 `two_finger_gripper`，SRDF 中没有这个 group。
+- `start/*/name`：Action/Service 名称。一般保持默认，除非需要多机械臂或命名空间隔离。
+- `decartes/eef_step`：笛卡尔路径插值步长，越小路径越细、规划越慢。
+- `decartes/min_success_rate`：笛卡尔路径最小成功比例。
+- `motion_planning/planning_time`：MoveIt 单次规划时间。
+- `motion_planning/max_velocity_scaling_factor`：MoveIt 速度比例，真机首次测试建议降到 `0.1~0.3`。
+- `motion_planning/max_acceleration_scaling_factor`：MoveIt 加速度比例，真机首次测试建议降到 `0.1~0.3`。
+- `motion_planning/planner_id`：默认 `RRTConnect`，需要与 MoveIt OMPL 配置中的 planner 名称匹配。
+- `reachable_pose_search/step_deg`：可达姿态搜索步长。
+- `reachable_pose_search/radius_deg`：可达姿态搜索角度范围。
+
+典型真机保守配置：
+
+```yaml
+motion_planning:
+  planning_time: 5.0
+  planning_attempts: 10
+  max_velocity_scaling_factor: 0.2
+  max_acceleration_scaling_factor: 0.2
+  planner_id: "RRTConnect"
+```
+
+### 8.2 `dm_hw/config/dm_controller.yaml`
+
+这个文件只在真机链路使用。fake controller 不启动 `dm_hw`，也不会读取这些硬件参数。
 
 ```yaml
 dm_arm_hardware:
-  serial_port: "/dev/ttyACM0"  # 根据实际连接修改
+  serial_port: "/dev/ttyACM0"
   baudrate: 921600
   control_frequency: 500.0
 ```
 
-### 4. 基础测试
+关键参数：
 
-#### 检查硬件连接
+- `serial_port`：默认串口。也可以启动时用 `./dm-arm-start.sh --serial-port /dev/ttyUSB0` 覆盖。
+- `baudrate`：默认波特率。也可以启动时用 `./dm-arm-start.sh --baudrate 921600` 覆盖。
+- `control_frequency`：`dm_hw` 控制循环频率。
+- `use_mit_mode`：`false` 使用位置速度模式；`true` 使用 MIT 模式。
+- `kp`、`kd`：MIT 模式增益。位置速度模式下不作为主控制增益。
+- `max_position_change`：单周期最大位置命令变化，用于限制突变。
+- `max_velocity`：发送给硬件的目标速度上限。
+- `enable_write`：是否向电机写命令。调试读反馈时可设为 `false`。
+- `enable_read_refresh`：是否每周期刷新电机状态。
+- `return_zero_on_shutdown`：节点退出时先回零，再失能电机。
 
-```bash
-# 测试串口通信
-python3 -c "import serial; s=serial.Serial('/dev/ttyACM0', 921600); print('串口连接成功:', s)"
-```
-
-#### 启动系统
-
-```bash
-# 一键启动（包含硬件接口、MoveIt、RViz）
-roslaunch dm_arm_service dm_arm_server.launch
-
-# 可选参数：
-# use_rviz:=false          # 不启动 RViz
-# use_fake_execution:=true # 仅仿真模式（不连接真实硬件）
-```
-
-**启动成功标志：**
-```
-[INFO] [1765811909.715087159]: ====================================
-[INFO] [1765811909.715137026]:    DM Arm 服务器已启动
-[INFO] [1765811909.715158397]: ====================================
-[INFO] [1765811909.715180956]: 可用的服务：
-[INFO] [1765811909.715199953]:   * /dm_arm_server/eef_cmd
-[INFO] [1765811909.715220137]:     └─ 末端位姿控制服务
-[INFO] [1765811909.715239134]:   * /dm_arm_server/task_planner
-[INFO] [1765811909.715258131]:     └─ 任务组规划服务
-[INFO] [1765811909.715278315]: ====================================
-```
-
-#### 测试服务
-
-```bash
-# 运行测试脚本
-cd ~/dm_arm_ws
-source test_service.sh
-```
-
----
-
-## 📊 完整使用流程
-
-### 阶段 1: RViz 手动控制
-
-1. **启动系统**（如已启动则跳过）:
-   ```bash
-   roslaunch dm_arm_service dm_arm_server.launch
-   ```
-
-2. **RViz 界面操作**:
-   - 左侧 **MotionPlanning** 面板
-   - **Context** 标签页选择 `Planning Scene Topic` 为 `/move_group/monitored_planning_scene`
-   - **Planning** 标签页:
-     - **Planning Group**: 选择 `arm` 或 `end`
-     - 拖动**交互标记**设置目标位姿
-     - 或点击 **Random Valid** 生成随机目标
-     - 点击 **Plan** 进行路径规划
-     - 点击 **Execute** 执行运动
-
-### 阶段 2: 服务端控制
-
-#### 末端位姿控制服务
-
-**服务名称**: `/dm_arm_server/eef_cmd`  
-**服务类型**: `dm_arm_msgs_srvs::dm_arm_cmd`
-
-##### 常用命令
-
-| 命令          | 说明                             | 示例用法                                                      |
-| ------------- | -------------------------------- | ------------------------------------------------------------- |
-| `zero`        | 回到零点（初始位置）             | `rosservice call /dm_arm_server/eef_cmd "command: 'zero'"`     |
-| `goal_base`   | 基座坐标系下设置末端目标位姿     | `command: 'goal_base', x: 0.3, y: 0.0, z: 0.5, roll/pitch/yaw: 0` |
-| `goal_eef`    | 末端坐标系下设置相对目标位姿     | `command: 'goal_eef', x: 0.1 (末端沿x轴移动0.1米)`              |
-| `stretch`     | 末端沿当前朝向伸缩               | `command: 'stretch', param1: '0.05' (伸出0.05米)`              |
-| `rotate`      | 末端绕Z轴旋转                    | `command: 'rotate', param1: '90.0' (旋转90度)`                 |
-| `get_pose`    | 获取当前末端位姿（基座坐标系）   | `command: 'get_pose'`                                          |
-| `get_joints`  | 获取所有关节当前角度             | `command: 'get_joints'`                                        |
-
-##### 示例：设置末端位姿
-
-```bash
-rosservice call /dm_arm_server/eef_cmd "command: 'goal_base'
-x: 0.3
-y: 0.0
-z: 0.5
-roll: 0.0
-pitch: 0.0
-yaw: 0.0
-param1: ''
-param2: ''
-param3: ''"
-```
-
-##### 示例：获取当前位姿
-
-```bash
-rosservice call /dm_arm_server/eef_cmd "command: 'get_pose'
-x: 0.0
-y: 0.0
-z: 0.0
-roll: 0.0
-pitch: 0.0
-yaw: 0.0
-param1: ''
-param2: ''
-param3: ''"
-
-# 响应示例：
-# success: True
-# message: "当前末端位姿获取成功"
-# cur_x: 0.3
-# cur_y: 0.0
-# cur_z: 0.5
-# cur_roll: 0.0
-# cur_pitch: 0.0
-# cur_yaw: 0.0
-```
-
-#### 任务组规划服务
-
-**服务名称**: `/dm_arm_server/task_planner`  
-**服务类型**: `dm_arm_msgs_srvs::dm_arm_cmd`
-
-##### 任务规划命令
-
-| 命令            | 说明                   | 参数说明                                                      |
-| --------------- | ---------------------- | ------------------------------------------------------------- |
-| `add_task`      | 添加任务到队列         | `x,y,z,roll,pitch,yaw`: 目标位姿<br>`param1`: 到达后等待时间(秒)<br>`param2`: 动作类型(NONE/PICK/STRETCH/ROTATE)<br>`param3`: 动作参数 |
-| `clear_tasks`   | 清空任务队列           | 无需参数                                                      |
-| `exe_all_tasks` | 按顺序执行所有任务     | 无需参数                                                      |
-
-##### 动作类型说明
-
-- `NONE`: 无动作
-- `PICK`: 抓取动作
-- `STRETCH`: 伸缩, `param3` 为长度(米)
-- `ROTATE`: 旋转, `param3` 为角度(弧度)
-
-##### 示例：任务序列控制
-
-```bash
-# 1. 清空任务队列
-rosservice call /dm_arm_server/task_planner "command: 'clear_tasks'"
-
-# 2. 添加任务1：移动到位置A并等待2秒
-rosservice call /dm_arm_server/task_planner "command: 'add_task'
-x: 0.3
-y: 0.1
-z: 0.4
-roll: 0.0
-pitch: 0.0
-yaw: 0.0
-param1: '2.0'
-param2: 'NONE'
-param3: ''"
-
-# 3. 添加任务2：伸出0.05米
-rosservice call /dm_arm_server/task_planner "command: 'add_task'
-x: 0.3
-y: 0.1
-z: 0.4
-roll: 0.0
-pitch: 0.0
-yaw: 0.0
-param1: '1.0'
-param2: 'STRETCH'
-param3: '0.05'"
-
-# 4. 执行所有任务
-rosservice call /dm_arm_server/task_planner "command: 'exe_all_tasks'"
-```
-
-### 阶段 3: Python 客户端编程
-
-#### 安装依赖
-
-```bash
-pip install rospy
-```
-
-#### 示例代码
-
-```python
-#!/usr/bin/env python3
-import rospy
-from dm_arm_msgs_srvs.srv import dm_arm_cmd, dm_arm_cmdRequest
-
-def move_to_pose(x, y, z, roll=0, pitch=0, yaw=0):
-    """移动机械臂末端到指定位姿"""
-    rospy.wait_for_service('/dm_arm_server/eef_cmd')
-    try:
-        eef_cmd = rospy.ServiceProxy('/dm_arm_server/eef_cmd', dm_arm_cmd)
-        req = dm_arm_cmdRequest()
-        req.command = "goal_base"
-        req.x = x
-        req.y = y
-        req.z = z
-        req.roll = roll
-        req.pitch = pitch
-        req.yaw = yaw
-        
-        resp = eef_cmd(req)
-        if resp.success:
-            rospy.loginfo(f"成功移动到位姿: ({x}, {y}, {z})")
-        else:
-            rospy.logerr(f"移动失败: {resp.message}")
-        return resp
-    except rospy.ServiceException as e:
-        rospy.logerr(f"服务调用失败: {e}")
-
-def get_current_pose():
-    """获取当前末端位姿"""
-    rospy.wait_for_service('/dm_arm_server/eef_cmd')
-    try:
-        eef_cmd = rospy.ServiceProxy('/dm_arm_server/eef_cmd', dm_arm_cmd)
-        req = dm_arm_cmdRequest()
-        req.command = "get_pose"
-        
-        resp = eef_cmd(req)
-        rospy.loginfo(f"当前位姿: x={resp.cur_x:.3f}, y={resp.cur_y:.3f}, z={resp.cur_z:.3f}")
-        return resp
-    except rospy.ServiceException as e:
-        rospy.logerr(f"服务调用失败: {e}")
-
-if __name__ == "__main__":
-    rospy.init_node('dm_arm_client_example')
-    
-    # 回到零点
-    move_to_pose(0, 0, 0)
-    rospy.sleep(2)
-    
-    # 移动到目标位姿
-    move_to_pose(0.3, 0.0, 0.5)
-    rospy.sleep(2)
-    
-    # 获取当前位姿
-    get_current_pose()
-```
-
----
-
-## 🛠️ 配置与定制
-
-### 参数配置文件
-
-**文件路径**: [src/dm_arm_service/config/dm_arm_config.yaml](src/dm_arm_service/config/dm_arm_config.yaml)
-
-#### 硬件接口配置
-
-```yaml
-dm_arm_hardware:
-  serial_port: "/dev/ttyACM0"       # 串口设备路径
-  baudrate: 921600                  # 波特率
-  control_frequency: 500.0          # 控制频率 (200~500 Hz)
-  
-  # 控制模式
-  use_mit_mode: false               # MIT 模式（位置+速度+力矩控制）
-  kp: 30.0                          # MIT 模式比例增益
-  kd: 1.0                           # MIT 模式微分增益
-  
-  # 安全参数
-  enable_write: true                # 允许写入命令
-  max_position_change: 0.5          # 单次最大位置变化 (rad)
-  max_velocity: 5.0                 # 最大速度 (rad/s)
-```
-
-#### 关节配置
+电机映射：
 
 ```yaml
 joints:
-  names:
-    - joint1
-    - joint2
-    - joint3
-    - joint4
-    - joint5
-    - joint6
-    - gripper_left
-  
-  motor_ids: [1, 2, 3, 4, 5, 6, 7]     # 电机 CAN ID
-  motor_types: [2, 2, 2, 0, 0, 0, 0]   # 电机类型（0:DM4310, 2:DM4340）
-  
-  # 关节限位
-  limits:
-    joint1: {min: -3.14, max: 3.14}
-    joint2: {min: -1.57, max: 1.57}
-    joint3: {min: -1.57, max: 1.57}
-    joint4: {min: -3.14, max: 3.14}
-    joint5: {min: -1.57, max: 1.57}
-    joint6: {min: -3.14, max: 3.14}
+  names: [joint1, joint2, joint3, joint4, joint5, joint6, gripper_left]
+  motor_ids: [1, 2, 3, 4, 5, 6, 7]
+  master_ids: [0, 0, 0, 0, 0, 0, 0]
+  motor_types: [2, 2, 2, 0, 0, 0, 0]
 ```
 
-#### 末端执行器配置
+配置要求：
+
+- `names`、`motor_ids`、`master_ids`、`motor_types`、`motor_to_joint_scale`、`joint_to_motor_scale` 长度必须一致。
+- `joint1..joint6` 对应 `arm_controller`。
+- `gripper_left` 对应 `end_controller`，默认电机 ID 是 `0x07`。
+- `motor_types` 必须按实际达妙电机型号调整，错误型号可能导致控制范围或协议解析不正确。
+- `motor_to_joint_scale` 是电机反馈到 ROS 关节单位的比例。
+- `joint_to_motor_scale` 是 ROS 关节命令到电机单位的比例。
+- `gripper_left` 当前按 `0.053m/rev` 丝杆导程配置，若夹爪机械结构变更，需要同步调整两组 scale。
+
+controller 配置：
+
+- `joint_state_controller` 发布 `/joint_states`。
+- `arm_controller` 接收 MoveIt 的 6 轴轨迹。
+- `end_controller` 接收 MoveIt 的夹爪轨迹。
+
+不要只在 MoveIt controller 配置里加关节而不改 `dm_controller.yaml`。真机链路里，某个关节必须同时存在于 `dm_hw` 的 `joints` 和对应的 ros_control controller 中。
+
+### 8.3 `dm_arm_camera/config/dm_arm_orbbec.yaml`
+
+这个文件只在启动 `--with-camera` 时使用：
 
 ```yaml
-end_effector:
-  max_reach: 0.6                    # 最大工作半径 (米)
-  min_reach: 0.1                    # 最小工作半径 (米)
-  
-  # 运动参数
-  velocity_scaling: 0.3             # 速度缩放因子 (0.1~1.0)
-  acceleration_scaling: 0.3         # 加速度缩放因子 (0.1~1.0)
-  
-  # 容差
-  goal_position_tolerance: 0.015    # 位置目标容差 (米)
-  goal_orientation_tolerance: 0.05  # 姿态目标容差 (弧度)
+color_width: 1280
+color_height: 720
+color_fps: 30
+depth_width: 1280
+depth_height: 800
+depth_fps: 30
 ```
 
-#### MoveIt 配置
+关键参数：
+
+- `color_width`、`color_height`、`color_fps`：彩色图分辨率和帧率。
+- `depth_width`、`depth_height`、`depth_fps`：深度图分辨率和帧率。
+- `align_mode`：深度对齐模式。当前默认 `sw`。
+- `rotate_180`：相机安装倒置时可设为 `true`。
+- `min_depth_m`、`max_depth_m`：相机节点发布前的深度有效范围。
+- `enable_lrm`：是否发布 LRM 单点测距。
+- `publish_rate`：相机节点发布频率上限。
+- `color_frame_id`、`depth_frame_id`、`depth_registered_frame_id`：相机 TF frame 名称。
+- `hand_eye/T_cam_to_flange`：相机到法兰的 4x4 手眼外参矩阵。
+- `hand_eye/flange_id`：手眼矩阵挂载的法兰/末端 link，当前为 `link6-7`。
+
+手眼标定更新后，通常只改：
 
 ```yaml
-moveit:
-  planning_group: "arm"             # 规划组名称
-  planner_id: "RRTConnect"          # 规划器（RRTConnect/RRTstar/CHOMP/STOMP）
-  planning_time: 5.0                # 规划时间限制 (秒)
-  num_planning_attempts: 10         # 规划尝试次数
-  
-  execution_timeout: 15.0           # 执行超时 (秒)
-  allow_replanning: true            # 允许重新规划
+hand_eye:
+  T_cam_to_flange:
+    - [...]
+    - [...]
+    - [...]
+    - [0.0, 0.0, 0.0, 1.0]
+  flange_id: link6-7
 ```
 
-### 电机类型代码
+### 8.4 `dm_arm_perception/config/dm_arm_perception.yaml`
 
-| 代码 | 型号         | 电压 |
-| ---- | ------------ | ---- |
-| 0    | DM4310       | 24V  |
-| 1    | DM4310_48V   | 48V  |
-| 2    | DM4340       | 24V  |
-| 3    | DM4340_48V   | 48V  |
-
----
-
-## 📁 项目结构
-
-```
-Tomato-Picker-DM/
-├── src/
-│   │
-│   ├── dm_arm_description/                 # 机械臂 URDF 模型
-│   │   ├── meshes/                         # 3D 模型文件
-│   │   │   ├── collision/                  # 碰撞检测模型
-│   │   │   └── visual/                     # 可视化模型
-│   │   ├── urdf/
-│   │   │   └── DM-Arm-Description.urdf     # URDF 描述文件
-│   │   ├── CMakeLists.txt
-│   │   └── package.xml
-│   │
-│   ├── dm_arm_moveit_config/               # MoveIt 配置包
-│   │   ├── config/                         # 配置文件
-│   │   │   ├── DM-Arm-Description.srdf     # 语义机器人描述
-│   │   │   ├── joint_limits.yaml           # 关节限位
-│   │   │   ├── kinematics.yaml             # 运动学配置
-│   │   │   ├── ompl_planning.yaml          # OMPL 规划器配置
-│   │   │   ├── chomp_planning.yaml         # CHOMP 规划器配置
-│   │   │   ├── stomp_planning.yaml         # STOMP 规划器配置
-│   │   │   ├── ros_controllers.yaml        # ROS 控制器配置
-│   │   │   └── ...
-│   │   ├── launch/                         # 启动文件
-│   │   │   ├── demo.launch                 # 演示启动
-│   │   │   ├── demo_gazebo.launch          # Gazebo 仿真启动
-│   │   │   ├── move_group.launch           # MoveIt 核心启动
-│   │   │   └── ...
-│   │   ├── CMakeLists.txt
-│   │   └── package.xml
-│   │
-│   ├── dm_arm_service/                     # 业务服务节点
-│   │   ├── config/
-│   │   │   └── dm_arm_config.yaml          # 主配置文件
-│   │   ├── include/                        # 头文件
-│   │   ├── launch/
-│   │   │   └── dm_arm_server.launch        # 主启动文件
-│   │   ├── src/
-│   │   │   └── dm_arm_server.cpp           # 服务器主程序
-│   │   ├── CMakeLists.txt
-│   │   └── package.xml
-│   │
-│   ├── dm_ht_controller/                   # 硬件接口节点
-│   │   ├── config/
-│   │   │   └── dm_controller.yaml          # 控制器配置
-│   │   ├── include/                        # 头文件
-│   │   ├── launch/                         # 启动文件
-│   │   ├── src/                            # 源代码
-│   │   ├── CMakeLists.txt
-│   │   └── package.xml
-│   │
-│   └── serial_driver/                      # 串口和 CAN 驱动
-│       ├── include/                        # 头文件
-│       ├── src/                            # 源代码
-│       ├── CMakeLists.txt
-│       └── package.xml
-│
-├── README.md                               # 本文档
-├── LICENSE                                 # MIT 许可证
-├── 达妙机械臂服务器客户端接口文档.md       # API 接口详细文档
-└── test_service.sh                         # 服务测试脚本
-```
-
----
-
-## 🛠️ 工具脚本快速参考
-
-### 启动脚本
-
-| 脚本                 | 说明                           | 命令                                                          |
-| -------------------- | ------------------------------ | ------------------------------------------------------------- |
-| 完整系统启动         | 启动硬件接口、MoveIt、RViz     | `roslaunch dm_arm_service dm_arm_server.launch`               |
-| 仿真模式启动         | 不连接真实硬件，仅仿真         | `roslaunch dm_arm_service dm_arm_server.launch use_fake_execution:=true` |
-| 无 RViz 启动         | 不启动 RViz 界面               | `roslaunch dm_arm_service dm_arm_server.launch use_rviz:=false` |
-| Gazebo 仿真          | 在 Gazebo 中仿真               | `roslaunch dm_arm_moveit_config demo_gazebo.launch`          |
-| MoveIt 演示          | MoveIt 演示模式（假执行）      | `roslaunch dm_arm_moveit_config demo.launch`                 |
-
-### 测试脚本
-
-| 脚本                 | 说明                           | 命令                                                          |
-| -------------------- | ------------------------------ | ------------------------------------------------------------- |
-| 服务测试             | 测试所有服务接口               | `source test_service.sh`                                      |
-| 串口通信测试         | 测试串口连接                   | `python3 -c "import serial; s=serial.Serial('/dev/ttyACM0', 921600); print(s)"` |
-
----
-
-## 📚 高级用法
-
-### 自定义规划器
-
-编辑 [src/dm_arm_moveit_config/config/ompl_planning.yaml](src/dm_arm_moveit_config/config/ompl_planning.yaml) 配置不同的 OMPL 规划器：
+这个文件控制点云输入、坐标转换和滤波：
 
 ```yaml
-planner_configs:
-  RRTConnect:
-    type: geometric::RRTConnect
-    range: 0.0  # 默认使用自动范围
-  RRTstar:
-    type: geometric::RRTstar
-    range: 0.0
-    goal_bias: 0.05
-  # ... 更多规划器配置
+topics:
+  color_image: /dm_arm/camera/orbbec/color/image_raw
+  depth_image: /dm_arm/camera/orbbec/depth_registered/image_raw
+  depth_info: /dm_arm/camera/orbbec/depth_registered/camera_info
+
+target_frame: base_link
 ```
 
-在服务或代码中使用时指定规划器：
-```cpp
-move_group.setPlannerId("RRTstar");
-```
+关键参数：
 
-### 使用 CHOMP 规划器
+- `topics/color_image`：彩色图输入。
+- `topics/depth_image`：对齐深度图输入，推荐使用 `depth_registered`。
+- `topics/depth_info`：深度相机内参。
+- `target_frame`：输出点云目标坐标系，通常为 `base_link`。
+- `pixel_stride`：像素采样步长，越大点越少、CPU 越低。
+- `frame_skip`：跳帧处理，越大负载越低、更新越慢。
+- `min_depth`、`max_depth`：进入点云处理的深度范围。
+- `min_x/max_x`、`min_y/max_y`、`min_z/max_z`：机械臂工作空间裁剪范围。
+- `voxel_leaf`：VoxelGrid 降采样尺寸。
+- `sor_mean_k`、`sor_stddev`：统计离群点滤波参数。
+- `publish_raw`、`publish_base`、`publish_filtered`：是否发布各阶段点云。
 
-CHOMP (Covariant Hamiltonian Optimization for Motion Planning) 适合需要平滑轨迹的场景：
+真机调试建议：
 
-```bash
-roslaunch dm_arm_moveit_config move_group.launch \
-  pipeline:=chomp
-```
+- 先确认 `raw` 点云有数据，再看 `base` 点云 TF 是否正确。
+- 工作空间裁剪先放宽，确认方向后再收窄。
+- `voxel_leaf` 可从 `0.01~0.03` 之间调，数值越大越稀疏。
 
-### 使用 STOMP 规划器
+### 8.5 `dm_arm_moveit_config/config/*.yaml`
 
-STOMP (Stochastic Trajectory Optimization for Motion Planning) 适合处理约束复杂的场景：
+MoveIt 配置由多个文件组成，常见修改点如下：
 
-```bash
-roslaunch dm_arm_moveit_config move_group.launch \
-  pipeline:=stomp
-```
+| 文件 | 说明 | 修改建议 |
+|---|---|---|
+| `simple_moveit_controllers.yaml` | 真机 MoveIt controller 映射 | controller 名称必须与 `dm_hw/config/dm_controller.yaml` 中的 `arm_controller`、`end_controller` 一致 |
+| `fake_controllers.yaml` | fake controller 映射和初始位姿 | fake 测试时使用，`initial` 中 `arm/zero`、`end/open` 必须存在于 SRDF |
+| `joint_limits.yaml` | MoveIt 速度/加速度限制 | 真机首次测试建议降低关节 `max_velocity` 或全局 scaling |
+| `kinematics.yaml` | IK 求解器配置 | 默认 KDL，可按需要换 TRAC-IK，但 group 名必须仍为 `arm` |
+| `ompl_planning.yaml` | OMPL planner 配置 | 调规划算法和 projection evaluator 时使用 |
+| `cartesian_limits.yaml` | Pilz/笛卡尔速度限制 | 需要限制直线运动速度时调整 |
+| `sensors_3d.yaml` | MoveIt Octomap 点云输入 | 只有 `use_camera:=true` 时加载 3D sensor |
+| `ros_controllers.yaml`、`gazebo_controllers.yaml` | ros_control/Gazebo 参考配置 | 当前主链路使用 `dm_hw/config/dm_controller.yaml` |
 
-### Gazebo 仿真集成
+真机 controller 映射必须保持一致：
 
-启动 Gazebo 仿真环境：
-
-```bash
-roslaunch dm_arm_moveit_config demo_gazebo.launch
-```
-
-这将启动：
-- Gazebo 物理仿真器
-- 机械臂 URDF 模型
-- ros_control Gazebo 插件
-- MoveIt 规划和执行
-
-### 添加碰撞检测对象
-
-在 RViz 的 **MotionPlanning** 面板中：
-1. 选择 **Scene Objects** 标签页
-2. 点击 **Import From Text** 或 **Publish Current Scene**
-3. 添加障碍物（Box、Sphere、Cylinder 等）
-4. MoveIt 会自动避开这些障碍物进行规划
-
-### 夹爪控制
-
-夹爪作为第 7 个关节，可以通过以下方式控制：
-
-#### ROS 话题控制
-
-```bash
-# 发布夹爪位置命令（0.0 = 完全张开, 1.0 = 完全闭合）
-rostopic pub /dm_ht_controller/joint_trajectory_controller/command trajectory_msgs/JointTrajectory "
-header:
-  seq: 0
-  stamp: {secs: 0, nsecs: 0}
-  frame_id: ''
-joint_names: ['gripper_left']
-points:
-- positions: [0.5]
-  time_from_start: {secs: 1, nsecs: 0}"
-```
-
-#### Python 代码控制
-
-```python
-import rospy
-from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
-
-def control_gripper(position, duration=1.0):
-    """
-    控制夹爪
-    :param position: 夹爪位置 (0.0~1.0)
-    :param duration: 执行时间 (秒)
-    """
-    pub = rospy.Publisher(
-        '/dm_ht_controller/joint_trajectory_controller/command',
-        JointTrajectory,
-        queue_size=10
-    )
-    rospy.sleep(0.5)  # 等待发布者初始化
-    
-    traj = JointTrajectory()
-    traj.joint_names = ['gripper_left']
-    
-    point = JointTrajectoryPoint()
-    point.positions = [position]
-    point.time_from_start = rospy.Duration(duration)
-    
-    traj.points.append(point)
-    pub.publish(traj)
-    rospy.loginfo(f"夹爪移动到位置: {position}")
-
-# 使用示例
-rospy.init_node('gripper_control_example')
-control_gripper(0.0)  # 完全张开
-rospy.sleep(2)
-control_gripper(1.0)  # 完全闭合
-```
-
----
-
-## 🔧 故障排查
-
-### 串口连接问题
-
-#### 问题：找不到串口设备
-
-```bash
-# 诊断所有 USB 设备
-lsusb
-
-# 查看串口设备
-ls -l /dev/ttyACM*
-
-# 查看设备权限
-ls -l /dev/ttyACM0
-
-# 查看内核消息
-dmesg | grep tty
-```
-
-**解决方案**：
-1. 确认用户在 `dialout` 组：
-   ```bash
-   groups $USER  # 查看当前用户组
-   sudo usermod -aG dialout $USER  # 添加到 dialout 组
-   sudo reboot  # 重启生效
-   ```
-
-2. 检查 USB 连接和驱动：
-   ```bash
-   # 查看 USB 设备详细信息
-   lsusb -v | grep -A 10 "达妙\|DM\|CAN"
-   ```
-
-#### 问题：串口权限不足
-
-**错误信息**：`PermissionError: [Errno 13] Permission denied: '/dev/ttyACM0'`
-
-**临时解决方案**：
-```bash
-sudo chmod 666 /dev/ttyACM0
-```
-
-**永久解决方案**：
-```bash
-sudo usermod -aG dialout $USER
-sudo reboot
-```
-
-#### 问题：串口被其他程序占用
-
-```bash
-# 查看占用串口的进程
-lsof /dev/ttyACM0
-
-# 终止占用进程
-kill -9 <PID>
-```
-
-### 硬件接口问题
-
-#### 问题：电机无响应或错误
-
-**诊断步骤**：
-1. 检查电源连接（24V 电源）
-2. 确认 CAN 总线连接正常
-3. 验证电机 ID 配置与实际一致
-4. 检查电机类型配置
-
-**测试电机通信**：
-```bash
-# 查看日志
-rostopic echo /dm_ht_controller/diagnostics
-```
-
-#### 问题：控制频率不稳定
-
-编辑配置文件，降低控制频率：
 ```yaml
-control_frequency: 200.0  # 从 500 降低到 200
+controller_list:
+  - name: arm_controller
+    action_ns: follow_joint_trajectory
+    joints: [joint1, joint2, joint3, joint4, joint5, joint6]
+  - name: end_controller
+    action_ns: follow_joint_trajectory
+    joints: [gripper_left]
 ```
 
-#### 问题：关节超限或突然停止
+Octomap 输入默认来自：
 
-检查关节限位配置 [src/dm_arm_moveit_config/config/joint_limits.yaml](src/dm_arm_moveit_config/config/joint_limits.yaml)：
 ```yaml
-joint_limits:
-  joint1:
-    max_velocity: 5.0      # 降低最大速度
-    max_acceleration: 3.0  # 降低最大加速度
+point_cloud_topic: /dm_arm/perception/cloud/filtered
+filtered_cloud_topic: /dm_arm/moveit/filtered_cloud
 ```
 
-### MoveIt 规划问题
+如果不启动相机，`dm_arm_start.launch` 会把 `load_3d_sensors` 设为 `false`，MoveIt 不会加载 `sensors_3d.yaml`。
 
-#### 问题：规划失败或耗时过长
+---
 
-**解决方案**：
-1. 增加规划时间：
-   ```yaml
-   planning_time: 10.0  # 从 5.0 增加到 10.0
-   ```
+## 9. 交互式测试
 
-2. 减少规划尝试次数：
-   ```yaml
-   num_planning_attempts: 5  # 从 10 减少到 5
-   ```
-
-3. 更换规划器：
-   ```bash
-   # 使用 RRTConnect（快速但不保证最优）
-   move_group.setPlannerId("RRTConnect")
-   
-   # 使用 RRTstar（较慢但路径更优）
-   move_group.setPlannerId("RRTstar")
-   ```
-
-#### 问题：末端无法到达目标位姿
-
-**常见原因**：
-- 目标位姿超出工作空间
-- 目标位姿存在奇异点
-- 碰撞检测阻止到达
-
-**解决方案**：
-1. 检查工作空间限制
-2. 使用 `get_pose` 命令查询当前可达位姿
-3. 在 RViz 中调整碰撞检测敏感度
-
-#### 问题：执行轨迹与规划不一致
-
-**可能原因**：
-- 通信延迟
-- 控制器参数不匹配
-- 硬件响应延迟
-
-**解决方案**：
-调整控制器参数 [src/dm_ht_controller/config/dm_controller.yaml](src/dm_ht_controller/config/dm_controller.yaml)：
-```yaml
-joint_trajectory_controller:
-  stopped_velocity_tolerance: 0.05  # 提高容差
-  goal_time: 0.5  # 延长目标到达时间
-```
-
-### RViz 问题
-
-#### 问题：RViz 无法启动或崩溃
-
-**解决方案**：
-1. 重新安装 RViz：
-   ```bash
-   sudo apt remove ros-noetic-rviz
-   sudo apt install ros-noetic-rviz
-   ```
-
-2. 清除 RViz 配置：
-   ```bash
-   rm -rf ~/.rviz
-   ```
-
-3. 检查 OpenGL 支持：
-   ```bash
-   glxinfo | grep OpenGL
-   ```
-
-#### 问题：MotionPlanning 插件不显示
-
-**解决方案**：
-1. 确认 MoveIt 插件已安装：
-   ```bash
-   rospack find moveit_ros_visualization
-   ```
-
-2. 在 RViz 中手动添加插件：
-   - 点击 **Panels** → **Add New Panel**
-   - 选择 **MotionPlanning**
-
-#### 问题：机械臂模型不显示
-
-**解决方案**：
-1. 检查 URDF 是否加载到参数服务器：
-   ```bash
-   rosparam get /robot_description
-   ```
-
-2. 在 RViz 中添加 **RobotModel** 显示：
-   - 点击 **Add** → **RobotModel**
-   - 设置 **Robot Description** 为 `/robot_description`
-
-### 日志与调试
-
-#### 启用详细日志
-
-编辑 `~/.ros/config/rosconsole.config`:
-```
-log4j.logger.ros=DEBUG
-log4j.logger.ros.moveit=DEBUG
-```
-
-或使用环境变量：
-```bash
-export ROSCONSOLE_CONFIG_FILE=~/my_rosconsole.config
-```
-
-#### 查看实时日志
+启动控制链路后运行：
 
 ```bash
-# 查看所有日志
-rostopic echo /rosout
-
-# 查看 MoveIt 日志
-rostopic echo /move_group/result
-
-# 查看控制器状态
-rostopic echo /dm_ht_controller/joint_trajectory_controller/state
+./dm-arm-test.sh
 ```
 
-#### 记录 rosbag
+等待 action/service 更久：
 
 ```bash
-# 记录所有话题
-rosbag record -a
-
-# 记录特定话题
-rosbag record /joint_states /tf /dm_arm_server/feedback
-
-# 回放 rosbag
-rosbag play your_bag.bag
+./dm-arm-test.sh --wait 120
 ```
 
-#### 使用 rqt 工具
+跳过运动命令二次确认：
 
 ```bash
-# 启动 rqt 图形界面
-rqt
+./dm-arm-test.sh --yes
+```
 
-# 常用插件：
-# - rqt_graph: 查看节点和话题连接图
-# - rqt_plot: 实时绘制话题数据
-# - rqt_console: 查看日志消息
-# - rqt_reconfigure: 动态调整参数
+典型 fake controller 验证流程：
+
+```bash
+mamba-usb rosnoetic
+. ./ros_env/source-dm-arm.sh
+./dm-arm-start.sh --fake --no-rviz
+```
+
+另开终端：
+
+```bash
+mamba-usb rosnoetic
+. ./ros_env/source-dm-arm.sh
+./dm-arm-test.sh
 ```
 
 ---
 
-## 📖 参考文献与资源
+## 10. ROS 接口总览
 
-### 官方文档
+### Action
 
-- **ROS Noetic**: [http://wiki.ros.org/noetic](http://wiki.ros.org/noetic)
-- **MoveIt!**: [https://moveit.ros.org/](https://moveit.ros.org/)
-- **ros_control**: [http://wiki.ros.org/ros_control](http://wiki.ros.org/ros_control)
-- **OMPL**: [https://ompl.kavrakilab.org/](https://ompl.kavrakilab.org/)
+| 名称 | 类型 | 说明 |
+|---|---|---|
+| `/move_arm` | `dm_arm_msgs/MoveArmAction` | 完整机械臂命令接口 |
+| `/simple_move_arm` | `dm_arm_msgs/SimpleMoveArmAction` | 简化机械臂命令接口 |
+| `/pick_action` | `dm_arm_msgs/PickTaskAction` | 任务组与采摘任务接口 |
 
-### 硬件相关
+### Service
 
-- **达妙科技官网**: [https://www.damiaokeji.com/](https://www.damiaokeji.com/)
-- **达妙电机开源仓库**: [https://gitee.com/kit-miao/damiao/tree/master](https://gitee.com/kit-miao/damiao/tree/master)
-
----
-
-## 📝 许可证
-
-本项目采用 **MIT License** 开源，详见 [LICENSE](LICENSE) 文件
-
----
-
-## 👥 贡献与
-
-欢迎提交 Issues 和 Pull Requests！
+| 名称 | 类型 | 说明 |
+|---|---|---|
+| `/arm_config` | `dm_arm_msgs/ConfigArm` | 约束配置 |
+| `/arm_query` | `dm_arm_msgs/QueryArm` | 当前关节/位姿查询 |
+| `/eef_cmd` | `dm_arm_msgs/CommandEef` | 末端执行器命令 |
+| `/dm_arm/perception/set_octomap_enabled` | `dm_arm_msgs/CommandOctomap` | Octomap 点云输入开关与异步清图 |
 
 ---
 
-## 📬 联系方式
+## 11. 常用验证命令
 
-如有问题或建议，请通过以下方式联系：
-- GitHub Issues
-- 提交讨论 (GitHub Discussions)
+### 检查 ROS 与工作区环境
+
+```bash
+echo "$ROS_DISTRO"
+rospack find dm_hw
+rospack find dm_arm_interface
+```
+
+### 检查 controller
+
+```bash
+rosservice call /controller_manager/list_controllers
+rostopic list | grep follow_joint_trajectory
+```
+
+### 查询机械臂状态
+
+```bash
+rosservice call /arm_query "command_type: 12
+values: []"
+
+rosservice call /arm_query "command_type: 13
+values: []"
+```
+
+### 检查相机话题
+
+```bash
+rostopic list | grep /dm_arm/camera
+rostopic hz /dm_arm/camera/orbbec/depth_registered/image_raw
+```
+
+### 检查点云
+
+```bash
+rostopic hz /dm_arm/perception/cloud/raw
+rostopic hz /dm_arm/perception/cloud/base
+rostopic hz /dm_arm/perception/cloud/filtered
+```
+
+### 控制 Octomap
+
+```bash
+rosservice call /dm_arm/perception/set_octomap_enabled "{enabled: false, clear_octomap: true}"
+rosservice call /dm_arm/perception/set_octomap_enabled "{enabled: true, clear_octomap: false}"
+```
+
 ---
 
-## 🙏 致谢
+## 12. 故障排查
 
-感谢以下项目和社区的支持：
+### 当前环境不是 Noetic
 
-- [ROS](http://www.ros.org/) 开源机器人操作系统
-- [MoveIt!](https://moveit.ros.org/) 运动规划框架
-- [达妙科技](http://www.damiaotech.com/) 提供优秀的无刷电机产品
-- 所有贡献者和用户的反馈与支持
+```bash
+echo "$ROS_DISTRO"
+rosversion -d
+```
 
+虚拟环境：
+
+```bash
+mamba-usb rosnoetic
+. ./ros_env/source-dm-arm.sh
+```
+
+原生环境：
+
+```bash
+source /opt/ros/noetic/setup.bash
+source devel/setup.bash
+```
+
+### 找不到 dm_arm 包
+
+```bash
+. ./ros_env/source-dm-arm.sh
+rospack profile
+rospack find dm_arm_interface
+```
+
+如果仍然找不到，先重新编译工作区
+
+### 真机串口打不开
+
+```bash
+ls -l /dev/ttyACM* /dev/ttyUSB*
+groups
+```
+
+检查：
+
+- 当前用户是否在 `dialout` 组
+- `--serial-port` 是否指定了正确设备
+- 是否有其他进程占用串口
+- 波特率是否与 USB-CAN 固件配置一致
+
+### end controller 不可用
+
+```bash
+rosservice call /controller_manager/list_controllers
+rostopic list | grep end_controller
+```
+
+检查：
+
+- `dm_hw/config/dm_controller.yaml` 中是否包含 `gripper_left`
+- `motor_ids` 是否包含 `7`
+- `controller_spawner` 是否启动了 `end_controller`
+- MoveIt 是否加载 `simple_moveit_controllers.yaml`
+
+### 点云没有发布
+
+```bash
+rostopic list | grep perception
+rostopic echo -n 1 /dm_arm/camera/orbbec/depth_registered/image_raw/header
+```
+
+检查：
+
+- 启动时是否传入 `--with-camera`
+- `depth_registered` 是否发布
+- 深度图编码是否为 `32FC1`
+- TF 是否可从相机 frame 转到 `base_link`
+
+---
+
+## 13. 文档
+
+- [dm_hw 硬件接口](src/platform/dm_hw/README.md)
+- [ROS Noetic 虚拟环境说明](ros_env/README.md)
+- [MoveIt 配置](src/platform/dm_arm_moveit_config)
+- [DM-Arm 接口层配置](src/app/dm_arm_interface/config/config.yaml)
+
+---
+
+## 14. 致谢
+
+本工作区上层架构移植自 `piper-ws`，底层硬件链路替换为 `dm_hw` 达妙电机接口
+
+同时感谢以下优秀开源项目：
+
+- MoveIt: https://moveit.ros.org/
+- ros_control: http://wiki.ros.org/ros_control
+- trac-ik: https://github.com/HIRO-group/trac_ik
+- serial: https://github.com/wjwwood/serial
+- tl-optional: https://github.com/TartanLlama/optional
+- tl-expected: https://github.com/TartanLlama/expected
+
+---
+
+## 15. 许可证
+
+MIT License，详见 `LICENSE`
+
+---
+
+## 16. 贡献
+
+欢迎提交 Issue / PR

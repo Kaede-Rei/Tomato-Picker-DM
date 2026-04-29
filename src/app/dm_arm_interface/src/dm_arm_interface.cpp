@@ -51,11 +51,6 @@ void ROSInterface::init_eef(ros::NodeHandle& nh, const ROSInterfaceConfig& confi
                 config.eef_baud_rate);
             _eef_ = eef;
         }
-        // TODO: CAN 末端执行器暂时直接用 urdf
-        // else if(config.eef_type == "dm_arm_can_gripper") {
-        //     auto eef = std::make_shared<DmArmCanGripper>(nh);
-        //     _eef_ = eef;
-        // }
         else {
             ROS_WARN("未知 EEF 类型: %s，跳过初始化", config.eef_type.c_str());
             return;

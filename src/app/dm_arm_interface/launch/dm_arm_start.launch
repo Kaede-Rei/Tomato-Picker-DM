@@ -6,6 +6,8 @@
     <arg unless="$(arg use_fake_execution)" name="moveit_controller_manager" value="simple"/>
     <arg name="config_file" default="$(find dm_arm_interface)/config/config.yaml"/>
     <arg name="hardware_config_file" default="$(find dm_hw)/config/dm_controller.yaml"/>
+    <arg name="hardware_serial_port" default="/dev/ttyACM0"/>
+    <arg name="hardware_baudrate" default="921600"/>
 
     <param name="robot_description" textfile="$(find dm_arm_description)/urdf/DM-Arm-Description.urdf"/>
 
@@ -15,6 +17,8 @@
     <group unless="$(arg use_fake_execution)">
         <include file="$(find dm_hw)/launch/dm_controller.launch">
             <arg name="config_file" value="$(arg hardware_config_file)"/>
+            <arg name="serial_port" value="$(arg hardware_serial_port)"/>
+            <arg name="baudrate" value="$(arg hardware_baudrate)"/>
         </include>
     </group>
 

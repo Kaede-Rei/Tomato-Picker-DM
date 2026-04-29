@@ -2,6 +2,7 @@
 #define DM_HW_DM_HARDWARE_INTERFACE_HPP
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -22,7 +23,8 @@ public:
     bool init();
     void read();
     void write();
-    void returnZero();
+    void return_zero();
+    void shutdown(bool do_return_zero);
 
     double control_frequency() const { return control_frequency_; }
 
@@ -51,11 +53,15 @@ private:
     bool enable_write_{ true };
     bool enable_read_refresh_{ true };
     bool return_zero_on_shutdown_{ false };
+    bool hardware_shutdown_{ false };
+    std::recursive_mutex hardware_mutex_;
 
     std::vector<std::string> joint_names_;
     std::vector<int> motor_ids_;
     std::vector<int> motor_types_;
     std::vector<int> master_ids_;
+    std::vector<double> motor_to_joint_scale_;
+    std::vector<double> joint_to_motor_scale_;
 
     std::vector<double> joint_position_;
     std::vector<double> joint_velocity_;

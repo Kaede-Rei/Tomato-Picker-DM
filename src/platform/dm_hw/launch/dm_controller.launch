@@ -1,11 +1,15 @@
 <launch>
   <arg name="config_file" default="$(find dm_hw)/config/dm_controller.yaml"/>
+  <arg name="serial_port" default="/dev/ttyACM0"/>
+  <arg name="baudrate" default="921600"/>
 
   <rosparam command="load" file="$(arg config_file)"/>
+  <param name="dm_arm_hardware/serial_port" value="$(arg serial_port)"/>
+  <param name="dm_arm_hardware/baudrate" value="$(arg baudrate)"/>
 
   <node name="dm_controller" pkg="dm_hw" type="dm_controller" output="screen" required="true"/>
 
   <node name="controller_spawner" pkg="controller_manager" type="spawner"
         output="screen" respawn="false"
-        args="joint_state_controller arm_controller"/>
+        args="joint_state_controller arm_controller end_controller"/>
 </launch>

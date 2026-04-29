@@ -11,7 +11,7 @@ dm_arm_hardware:
   max_velocity: 5.0
   enable_write: true
   enable_read_refresh: true
-  return_zero_on_shutdown: false
+  return_zero_on_shutdown: true
 
   joints:
     names:
@@ -21,9 +21,12 @@ dm_arm_hardware:
       - joint4
       - joint5
       - joint6
-    motor_ids: [1, 2, 3, 4, 5, 6]
-    master_ids: [0, 0, 0, 0, 0, 0]
-    motor_types: [2, 2, 2, 0, 0, 0]
+      - gripper_left
+    motor_ids: [1, 2, 3, 4, 5, 6, 7]
+    master_ids: [0, 0, 0, 0, 0, 0, 0]
+    motor_types: [2, 2, 2, 0, 0, 0, 0]
+    motor_to_joint_scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.008435211983870454]
+    joint_to_motor_scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 118.55066617319974]
 
 joint_state_controller:
   type: joint_state_controller/JointStateController
@@ -47,3 +50,12 @@ arm_controller:
     joint4: {trajectory: 0.0, goal: 0.0}
     joint5: {trajectory: 0.0, goal: 0.0}
     joint6: {trajectory: 0.0, goal: 0.0}
+
+end_controller:
+  type: position_controllers/JointTrajectoryController
+  joints:
+    - gripper_left
+  constraints:
+    goal_time: 0.0
+    stopped_velocity_tolerance: 0.0
+    gripper_left: {trajectory: 0.0, goal: 0.0}

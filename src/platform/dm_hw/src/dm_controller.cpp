@@ -4,6 +4,7 @@
 
 #include <controller_manager/controller_manager.h>
 #include <ros/ros.h>
+#include <std_srvs/Trigger.h>
 
 #include "dm_hw/dm_hardware_interface.hpp"
 
@@ -13,7 +14,6 @@ std::atomic_bool g_quit{ false };
 
 void quit_requested(int) {
     g_quit.store(true);
-    ros::shutdown();
 }
 
 } // namespace
@@ -33,6 +33,14 @@ int main(int argc, char** argv) {
     }
 
     controller_manager::ControllerManager cm(&robot, nh);
+    ros::ServiceServer shutdown_service = nh.advertiseService<std_srvs::Trigger::Request, std_srvs::Trigger::Response>(
+        "/dm_hw/shutdown",
+        [&robot](std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res) {
+            robot.shutdown(false);
+            res.success = true;
+            res.message = "dm_hw hardware disabled";
+            return true;
+        });
     ros::Rate rate(robot.control_frequency());
     ros::AsyncSpinner spinner(2);
     spinner.start();
@@ -51,6 +59,6 @@ int main(int argc, char** argv) {
     }
 
     spinner.stop();
-    ROS_INFO("dm_hw 控制节点退出");
+    ROS_INFO("dm_hw 控制节点退出，进入硬件接口析构流程");
     return 0;
 }

@@ -2,8 +2,8 @@ start:
   arm_group_name: "arm"
   eef:
     enabled: true
-    type: "dm_arm_can_gripper" # dm_arm_can_gripper | two_finger_gripper | servo_gripper
-    name: "dm_arm_can_gripper"
+    type: "two_finger_gripper"        # two_finger_gripper | servo_gripper
+    name: "end"
     serial_port: "/dev/com-1.4-tty"
     baud_rate: 115200
 
@@ -45,4 +45,3 @@ motion_planning:
 reachable_pose_search:
   step_deg: 5.0
   radius_deg: 60.0
-

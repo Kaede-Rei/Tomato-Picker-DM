@@ -1,6 +1,6 @@
 # dm_hw
 
-`dm_hw` 是当前 `dm-ws` 的 ROS1 Noetic 硬件接口包，底层复用新的达妙串口/USB-CAN C++ 驱动，上层向 `ros_control` 暴露 `PositionJointInterface`。
+`dm_hw` 是当前 `dm-ws` 的 ROS1 Noetic 硬件接口包，底层复用新的达妙串口/USB-CAN C++ 驱动，上层向 `ros_control` 暴露 `PositionJointInterface`
 
 ## 组成
 
@@ -30,13 +30,19 @@ mamba-usb rosnoetic
 roslaunch dm_arm_interface dm_arm_start.launch use_fake_execution:=false
 ```
 
+或使用根目录脚本，并在启动时覆盖串口/波特率：
+
+```bash
+./dm-arm-start.sh --serial-port /dev/ttyUSB0 --baudrate 921600
+```
+
 也可以只启动硬件和 `ros_control`：
 
 ```bash
-roslaunch dm_hw dm_controller.launch
+roslaunch dm_hw dm_controller.launch serial_port:=/dev/ttyUSB0 baudrate:=921600
 ```
 
-默认串口为 `/dev/ttyACM0`，默认波特率为 `921600`。根据真机连接修改 `config/dm_controller.yaml` 中的 `dm_arm_hardware`。
+默认串口为 `/dev/ttyACM0`，默认波特率为 `921600`；`config/dm_controller.yaml` 仍保留默认值，启动参数会覆盖串口和波特率
 
 ## 关键参数
 
@@ -48,5 +54,9 @@ roslaunch dm_hw dm_controller.launch
 - `dm_arm_hardware/joints/names`：ROS 关节名
 - `dm_arm_hardware/joints/motor_ids`：达妙电机 CAN ID
 - `dm_arm_hardware/joints/motor_types`：`damiao::DmMotorType` 枚举值
+- `dm_arm_hardware/joints/motor_to_joint_scale`：电机反馈到 ROS 关节单位的比例
+- `dm_arm_hardware/joints/joint_to_motor_scale`：ROS 关节命令到电机单位的比例
 
-fake controller 不会启动 `dm_hw`，用于上层和 MoveIt 链路验证。
+默认配置包含 7 个电机：`joint1..joint6` 对应 `0x01..0x06`，`gripper_left` 对应 `0x07`，并通过 `end_controller` 接入 MoveIt 的 `end` group；`gripper_left` 是 URDF 里的 prismatic 关节，默认按旧链路丝杆导程 `0.053m/rev` 做单位换算
+
+fake controller 不会启动 `dm_hw`，用于上层和 MoveIt 链路验证
