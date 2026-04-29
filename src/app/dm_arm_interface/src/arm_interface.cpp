@@ -14,6 +14,8 @@ namespace dm_arm {
 
 bool xyz_sizes_match(const dm_arm_msgs::SimpleMoveArmGoal& goal);
 bool rpy_sizes_match(const dm_arm_msgs::SimpleMoveArmGoal& goal);
+bool command_requires_move_goal_target(ArmCmdType type);
+bool command_requires_simple_goal_payload(ArmCmdType type);
 geometry_msgs::Quaternion quat_from_rpy(double roll, double pitch, double yaw);
 geometry_msgs::Pose pose_from_goal(const dm_arm_msgs::SimpleMoveArmGoal& goal, std::size_t index);
 
@@ -91,6 +93,12 @@ tl::optional<ArmCmdRequest> ArmMoveAction::convert_goal_to_request(const dm_arm_
 
     req.joint_names = goal.joint_names;
     req.joints = goal.joints;
+    req.values = goal.values;
+    req.waypoints = goal.waypoints;
+
+    if(!command_requires_move_goal_target(req.type)) {
+        return req;
+    }
 
     if(goal.target_type == goal.TARGET_POSE) req.target = goal.pose;
     else if(goal.target_type == goal.TARGET_POINT) req.target = goal.point;
@@ -99,9 +107,6 @@ tl::optional<ArmCmdRequest> ArmMoveAction::convert_goal_to_request(const dm_arm_
         ROS_WARN("接收到无效的目标类型: %d", goal.target_type);
         return tl::nullopt;
     }
-
-    req.values = goal.values;
-    req.waypoints = goal.waypoints;
 
     return req;
 }
@@ -199,6 +204,10 @@ tl::optional<ArmCmdRequest> SimpleArmMoveAction::convert_goal_to_request(const d
     req.joint_names = goal.joint_names;
     req.joints = goal.joints;
     req.values = goal.values;
+
+    if(!command_requires_simple_goal_payload(req.type)) {
+        return req;
+    }
 
     if(goal.target_type == goal.TARGET_POSE) {
         if(!xyz_sizes_match(goal) || !rpy_sizes_match(goal) || goal.x.empty()) {
@@ -441,6 +450,33 @@ bool xyz_sizes_match(const dm_arm_msgs::SimpleMoveArmGoal& goal) {
 bool rpy_sizes_match(const dm_arm_msgs::SimpleMoveArmGoal& goal) {
     return goal.roll.size() == goal.pitch.size() &&
         goal.roll.size() == goal.yaw.size();
+}
+
+bool command_requires_move_goal_target(ArmCmdType type) {
+    switch(type) {
+        case ArmCmdType::MOVE_TARGET:
+        case ArmCmdType::MOVE_TARGET_IN_EEF_FRAME:
+        case ArmCmdType::SET_ORIENTATION_CONSTRAINT:
+        case ArmCmdType::SET_POSITION_CONSTRAINT:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool command_requires_simple_goal_payload(ArmCmdType type) {
+    switch(type) {
+        case ArmCmdType::MOVE_TARGET:
+        case ArmCmdType::MOVE_TARGET_IN_EEF_FRAME:
+        case ArmCmdType::MOVE_LINE:
+        case ArmCmdType::MOVE_BEZIER:
+        case ArmCmdType::MOVE_DECARTES:
+        case ArmCmdType::SET_ORIENTATION_CONSTRAINT:
+        case ArmCmdType::SET_POSITION_CONSTRAINT:
+            return true;
+        default:
+            return false;
+    }
 }
 
 geometry_msgs::Quaternion quat_from_rpy(double roll, double pitch, double yaw) {

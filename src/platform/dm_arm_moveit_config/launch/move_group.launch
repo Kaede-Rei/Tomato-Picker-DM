@@ -16,6 +16,7 @@
   <arg name="allow_trajectory_execution" default="true"/>
   <arg name="moveit_controller_manager" default="simple" />
   <arg name="fake_execution_type" default="interpolate"/>
+  <arg name="load_3d_sensors" default="true"/>
   <arg name="max_safe_path_cost" default="1"/>
   <arg name="publish_monitored_planning_scene" default="true"/>
 
@@ -76,9 +77,11 @@
   </include>
 
   <!-- Sensors Functionality -->
-  <include ns="move_group" file="$(dirname)/sensor_manager.launch.xml" if="$(arg allow_trajectory_execution)">
-    <arg name="moveit_sensor_manager" value="DM-Arm-Description" />
-  </include>
+  <group if="$(arg allow_trajectory_execution)">
+    <include ns="move_group" file="$(dirname)/sensor_manager.launch.xml" if="$(arg load_3d_sensors)">
+      <arg name="moveit_sensor_manager" value="DM-Arm-Description" />
+    </include>
+  </group>
 
   <!-- Start the actual move_group node/action server -->
   <node name="move_group" launch-prefix="$(arg launch_prefix)" pkg="moveit_ros_move_group" type="move_group" respawn="false" output="screen" args="$(arg command_args)">

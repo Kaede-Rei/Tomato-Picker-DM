@@ -80,7 +80,7 @@ tl::optional<geometry_msgs::PoseStamped> normalize_target_to_pose_stamped(const 
  * @param group_name 机械臂规划组名称
  */
 ArmController::ArmController(const std::string& group_name)
-    : _arm_(group_name),
+    : _arm_(group_name, std::shared_ptr<tf2_ros::Buffer>(), ros::WallDuration(30.0)),
     _tf_listener_(_tf_buffer_),
     _base_link_(_arm_.getPlanningFrame()),
     _eef_link_(_arm_.getEndEffectorLink()) {

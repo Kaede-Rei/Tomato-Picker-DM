@@ -1,5 +1,9 @@
 #include "dm_arm_controller/eef_controller.hpp"
 
+#include <algorithm>
+
+#include <tf2_ros/buffer.h>
+
 namespace dm_arm {
 
 // ! ========================= 宏 定 义 ========================= ! //
@@ -21,7 +25,8 @@ namespace dm_arm {
  * @param eef_name 末端执行器规划组名称
  */
 TwoFingerGripper::TwoFingerGripper(const std::string& eef_name)
-    : EndEffector(eef_name), _gripper_(eef_name) {
+    : EndEffector(eef_name),
+    _gripper_(eef_name, std::shared_ptr<tf2_ros::Buffer>(), ros::WallDuration(30.0)) {
     ROS_INFO("末端执行器控制器 [%s] 已创建，规划组：%s", get_eef_name().c_str(), _gripper_.getName().c_str());
 }
 
@@ -66,9 +71,10 @@ ErrorCode TwoFingerGripper::close() {
  * @param angle 目标角度，单位为度
  */
 ErrorCode TwoFingerGripper::set_angle(double angle) {
-    // 将角度转换为关节值，假设夹爪的开合范围为 0-90 度，对应关节值 0-1
-    double joint_value = angle / 90.0;
-    return set_joint_value("gripper_joint", joint_value);
+    // DM-Arm URDF 中 gripper_left 的范围是 [-0.045, 0]，这里用 0~90 度映射闭合到打开。
+    const double ratio = std::clamp(angle / 90.0, 0.0, 1.0);
+    const double joint_value = -0.045 * ratio;
+    return set_joint_value("gripper_left", joint_value);
 }
 
 /**

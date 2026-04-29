@@ -1,0 +1,11 @@
+<launch>
+  <arg name="config_file" default="$(find dm_hw)/config/dm_controller.yaml"/>
+
+  <rosparam command="load" file="$(arg config_file)"/>
+
+  <node name="dm_controller" pkg="dm_hw" type="dm_controller" output="screen" required="true"/>
+
+  <node name="controller_spawner" pkg="controller_manager" type="spawner"
+        output="screen" respawn="false"
+        args="joint_state_controller arm_controller"/>
+</launch>
