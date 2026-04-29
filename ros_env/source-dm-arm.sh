@@ -2,6 +2,6 @@
 # Usage:
 #   source ./ros_env/source-dm-arm.sh
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DM_ARM_ROS_ENV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-source "$SCRIPT_DIR/../devel/setup.bash"
+source "$DM_ARM_ROS_ENV_DIR/../devel/setup.bash"

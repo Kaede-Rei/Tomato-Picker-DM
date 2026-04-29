@@ -26,7 +26,7 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DM_ARM_WS_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 WITH_CAMERA=false
 FAKE_EXECUTION=false
@@ -82,12 +82,12 @@ if [[ "$CURRENT_ROS_DISTRO" != "noetic" ]]; then
     exit 1
 fi
 
-if [[ -f "$SCRIPT_DIR/ros_env/source-dm-arm.sh" ]]; then
+if [[ -f "$DM_ARM_WS_DIR/ros_env/source-dm-arm.sh" ]]; then
     # shellcheck source=/dev/null
-    source "$SCRIPT_DIR/ros_env/source-dm-arm.sh"
-elif [[ -f "$SCRIPT_DIR/devel/setup.bash" ]]; then
+    source "$DM_ARM_WS_DIR/ros_env/source-dm-arm.sh"
+elif [[ -f "$DM_ARM_WS_DIR/devel/setup.bash" ]]; then
     # shellcheck source=/dev/null
-    source "$SCRIPT_DIR/devel/setup.bash"
+    source "$DM_ARM_WS_DIR/devel/setup.bash"
 else
     echo "未找到 dm-ws/devel/setup.bash，请先在 ROS Noetic 环境下编译工作区"
     exit 1

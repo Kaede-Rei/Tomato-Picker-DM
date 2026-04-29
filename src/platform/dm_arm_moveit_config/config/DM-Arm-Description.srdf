@@ -33,10 +33,10 @@
         <joint name="joint6" value="0"/>
     </group_state>
     <group_state name="open" group="end">
-        <joint name="gripper_left" value="-0.045"/>
+        <joint name="gripper_left" value="0.0"/>
     </group_state>
     <group_state name="close" group="end">
-        <joint name="gripper_left" value="0"/>
+        <joint name="gripper_left" value="-0.040"/>
     </group_state>
     <!--DISABLE COLLISIONS: By default it is assumed that any link of the robot could potentially come into collision with any other link in the robot. This tag disables collision checking between a specified pair of links. -->
     <disable_collisions link1="base_link" link2="link1" reason="Never"/>
