@@ -1,3 +1,6 @@
 build/
 devel/
 piper-ws/
+
+.codex
+src/CMakeLists.txt
